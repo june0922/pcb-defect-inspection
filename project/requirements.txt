@@ -1,0 +1,11 @@
+ultralytics
+opencv-python
+scikit-learn
+pyyaml
+numpy
+matplotlib
+
+# 웹 데모 (web/)
+fastapi
+uvicorn[standard]
+python-multipart

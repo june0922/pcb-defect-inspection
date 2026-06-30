@@ -1,0 +1,38 @@
+# DeepPCB 원본 데이터 (로컬 클론, 코드만 git 추적)
+DeepPCB/
+
+# 데이터 — raw 는 /shared 참조라 프로젝트에 없고, processed 만 data/ 에 생성
+data/
+
+# 학습 산출물
+runs/
+weights/
+*.pt
+*.onnx
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# 환경
+.env
+.venv/
+venv/
+env/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
