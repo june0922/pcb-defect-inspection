@@ -1,0 +1,104 @@
+{
+  "board_name": "review_board",
+  "grid_rows": 4,
+  "grid_cols": 4,
+  "cell_size": 640,
+  "cells": [
+    {
+      "row": 0,
+      "col": 0,
+      "source_file": "00041000_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 0,
+      "col": 1,
+      "source_file": "00041001_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 0,
+      "col": 2,
+      "source_file": "00041002_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 0,
+      "col": 3,
+      "source_file": "00041003_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 1,
+      "col": 0,
+      "source_file": "00041004_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 1,
+      "col": 1,
+      "source_file": "00041005_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 1,
+      "col": 2,
+      "source_file": "00041006_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 1,
+      "col": 3,
+      "source_file": "00041007_temp.jpg",
+      "cell_type": "temp"
+    },
+    {
+      "row": 2,
+      "col": 0,
+      "source_file": "00041008_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 2,
+      "col": 1,
+      "source_file": "00041009_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 2,
+      "col": 2,
+      "source_file": "00041010_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 2,
+      "col": 3,
+      "source_file": "00041011_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 3,
+      "col": 0,
+      "source_file": "00041012_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 3,
+      "col": 1,
+      "source_file": "00041013_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 3,
+      "col": 2,
+      "source_file": "00041014_test.jpg",
+      "cell_type": "test"
+    },
+    {
+      "row": 3,
+      "col": 3,
+      "source_file": "00041015_test.jpg",
+      "cell_type": "test"
+    }
+  ]
+}

@@ -19,7 +19,7 @@ pcb-project/
 ├── src/
 │   ├── __init__.py
 │   ├── utils.py             # load_config(), get_paths() — 환경 분기 공통화
-│   ├── preprocess.py        # DeepPCB → YOLO 포맷 변환 + CLAHE + 70/20/10 split
+│   ├── preprocess.py        # DeepPCB → YOLO 포맷 변환 + 70/20/10 split
 │   ├── train.py             # YOLOv8 학습 (n→s→m)
 │   ├── evaluate.py          # test 세트 mAP / recall 평가
 │   ├── pcb_inspect.py       # ★ 보드 판정 레이어 (OK / NG / REVIEW)
@@ -61,7 +61,7 @@ DeepPCB 원본 type 1~6 → cls = type - 1
 # 0. 의존성 설치
 pip install -r requirements.txt
 
-# 1. 전처리 (DeepPCB raw → YOLO 포맷)
+# 1. 전처리 (DeepPCB raw → YOLO 포맷, 70/20/10 split)
 python src/preprocess.py
 
 # 2. 학습
@@ -130,11 +130,66 @@ review_band 안 결함만 존재           → REVIEW  (수동 검토)
 
 ---
 
+## 웹 데모 실행
+
+```bash
+# 의존성 설치 (최초 1회)
+pip install fastapi uvicorn[standard] ultralytics opencv-python
+
+# (선택) 가상 보드 생성 — 전체 보드 검사 시연용
+python web/tools/build_demo_boards.py
+
+# 서버 시작
+uvicorn web.app:app --reload --port 8000
+# → http://localhost:8000        단일 이미지 검사
+# → http://localhost:8000/board  전체 보드 격자 순차 검사
+```
+
+---
+
+## 전체 보드 격자 순차 검사 (`feature/field-board`)
+
+`GET /board` 에서 접속. DeepPCB 640×640 크롭을 4×4 격자로 이어붙인 **데모용 합성 보드** 3종으로 시나리오를 시연한다.
+
+| 보드 | 구성 | 기대 판정 |
+|---|---|---|
+| 정상 보드 (`ok_board`) | `_temp` 크롭 ×16 (결함없는 템플릿) | OK |
+| 결함 보드 (`ng_board`) | `_test` 크롭 ×16 (결함있는 실제) | NG |
+| 혼합 보드 (`review_board`) | `_temp` 8장 + `_test` 8장 | NG 또는 REVIEW† |
+
+> † REVIEW 시나리오는 `_test` 크롭에서 모델이 **review_band 구간**(0.3–0.5) 신뢰도를 출력할 때 재현된다.
+> 1-epoch 스모크 모델에서는 NG / OK 가 나올 수 있으며, 충분히 학습된 모델에서 정상 동작한다.
+
+### UI 흐름
+
+1. 보드 선택 → **▶ 검사 시작**
+2. 서버에서 16칸 일괄 추론 후 결과 반환
+3. 프론트엔드가 칸별 순차 애니메이션 (OK=초록 / NG=빨강 / REVIEW=주황)
+4. 진행 카운터 "검사 중 7/16" 표시
+5. 보드 최종 판정 배지 + 칸별 집계
+6. REVIEW 칸이 있으면 **하단 수동 분류 패널** 출현 → 정상/결함 직접 선택 → 판정 확정
+
+### 가상 보드 재생성
+
+```bash
+python web/tools/build_demo_boards.py \
+  --raw-data /경로/DeepPCB/PCBData \
+  --group group00041 \
+  --rows 4 --cols 4
+```
+
+생성 결과: `web/samples/boards/{ok,ng,review}_board.{jpg,_map.json}`
+
+※ 가상 보드는 데모 전용 합성 이미지입니다. 원본 DeepPCB에는 2D 위치 정보가 없어 실제 보드 복원이 아닙니다.
+
+---
+
 ## 브랜치 분담
 
 | 브랜치 | 내용 |
 |---|---|
 | `main` | 베이스라인, 리뷰 완료 코드만 merge |
-| `feature/preprocessing` | `src/preprocess.py` CLAHE 파라미터 실험, EDA |
+| `feature/field-board` | 전체 보드 격자 순차 검사 웹 데모 |
+| `feature/preprocessing` | `src/preprocess.py` 전처리 실험, EDA |
 | `feature/model-training` | `src/train.py` 하이퍼파라미터 실험 (n→s→m, lr, aug) |
 | `feature/eda-viz` | `src/visualize.py` 클래스 분포·bbox 히스토그램·결과 시각화 |

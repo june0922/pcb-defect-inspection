@@ -11,7 +11,7 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 
-sys.path.append( str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent))
 
 CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
@@ -97,8 +97,8 @@ def draw_inspection_result(image_path: str, inspection: dict, save_path: str | N
     Returns:
         주석이 그려진 BGR 이미지 (np.ndarray)
 
-    # TODO: 박스 두께, 폰트 크기 파라미터화
-    # TODO: conf 값을 박스 옆에 표시
+    # TODO(개선): 박스 두께, 폰트 크기 파라미터화
+    # TODO(개선): conf 값을 박스 옆에 표시, 텍스트 배경 박스로 가독성 개선
     """
     img = cv2.imread(image_path)
     if img is None:
@@ -107,16 +107,13 @@ def draw_inspection_result(image_path: str, inspection: dict, save_path: str | N
     verdict = inspection["verdict"]
     color = VERDICT_COLOR.get(verdict, (128, 128, 128))
 
-    # 결함 바운딩 박스 그리기
     for defect in inspection["defects"]:
         x1, y1, x2, y2 = [int(v) for v in defect["bbox"]]
         box_color = VERDICT_COLOR.get("REVIEW", color) if defect in inspection["review"] else color
         cv2.rectangle(img, (x1, y1), (x2, y2), box_color, 2)
         label = f"{defect['class_name']} {defect['conf']:.2f}"
-        # TODO: 텍스트 배경 박스 추가해 가독성 개선
         cv2.putText(img, label, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, box_color, 1)
 
-    # 판정 배너 (상단)
     banner_text = f"[{verdict}]  결함: {inspection['defect_count']}개"
     cv2.rectangle(img, (0, 0), (img.shape[1], 30), color, -1)
     cv2.putText(img, banner_text, (5, 22), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)

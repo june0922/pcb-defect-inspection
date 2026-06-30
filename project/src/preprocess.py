@@ -4,7 +4,7 @@
     python src/preprocess.py [--config config.yaml] [--limit N]
 
 흐름:
-    collect_pairs() → apply_clahe() → split_dataset() → save_yolo_format()
+    collect_pairs() → split_dataset() → save_yolo_format()
 
 DeepPCB 포맷 메모:
     - raw_data/trainval.txt, test.txt: "img_rel lbl_rel" 한 줄씩
@@ -15,13 +15,13 @@ DeepPCB 포맷 메모:
 
 import sys
 import argparse
+import shutil
 from pathlib import Path
 
-import cv2
 import numpy as np
 from sklearn.model_selection import train_test_split
 
-sys.path.append( str(Path(__file__).parent))
+sys.path.append(str(Path(__file__).parent))
 from utils import load_config, get_paths
 
 CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
@@ -93,17 +93,6 @@ def convert_label(lbl_path: Path, img_w: int, img_h: int) -> list[str]:
     return yolo_lines
 
 
-def apply_clahe(img: np.ndarray, clip: float, grid: tuple[int, int]) -> np.ndarray:
-    """CLAHE(Contrast Limited Adaptive Histogram Equalization) 적용.
-
-    # TODO: clip / grid 파라미터 실험으로 최적값 결정
-    """
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY) if img.ndim == 3 else img
-    clahe = cv2.createCLAHE(clipLimit=clip, tileGridSize=grid)
-    enhanced = clahe.apply(gray)
-    return cv2.cvtColor(enhanced, cv2.COLOR_GRAY2BGR)
-
-
 def split_dataset(
     pairs: list[tuple[Path, Path]],
     train_ratio: float,
@@ -129,8 +118,9 @@ def save_yolo_format(
     processed: Path,
     cfg: dict,
 ) -> None:
-    """CLAHE 적용 이미지 + YOLO 라벨을 processed/{images,labels}/{split} 에 저장.
+    """이미지 + YOLO 라벨을 processed/{images,labels}/{split} 에 저장.
 
+    원본 이미지를 그대로 복사하고 라벨만 YOLO 포맷으로 변환한다.
     서버 /shared raw_data 는 읽기만 하고, 결과는 processed 에만 씀.
     """
     img_out = processed / "images" / split_name
@@ -138,23 +128,25 @@ def save_yolo_format(
     img_out.mkdir(parents=True, exist_ok=True)
     lbl_out.mkdir(parents=True, exist_ok=True)
 
-    clip = cfg["preprocess"]["clahe_clip"]
-    grid = tuple(cfg["preprocess"]["clahe_grid"])
-
     for img_path, lbl_path in pairs:
+        if not img_path.exists():
+            print(f"[warn] 이미지 없음: {img_path}")
+            continue
+
+        shutil.copy2(img_path, img_out / img_path.name)
+
+        # 이미지 크기를 파일명에서 읽지 않고 실제로 확인
+        import cv2
         img = cv2.imread(str(img_path))
         if img is None:
             print(f"[warn] 이미지 로드 실패: {img_path}")
+            (img_out / img_path.name).unlink(missing_ok=True)
             continue
-
         h, w = img.shape[:2]
-        enhanced = apply_clahe(img, clip, grid)
-        cv2.imwrite(str(img_out / img_path.name), enhanced)
 
         yolo_lines = convert_label(lbl_path, w, h)
         # YOLO는 이미지와 동일한 stem 으로 라벨을 탐색하므로 img_path.stem 사용
-        out_lbl = lbl_out / f"{img_path.stem}.txt"
-        out_lbl.write_text("\n".join(yolo_lines))
+        (lbl_out / f"{img_path.stem}.txt").write_text("\n".join(yolo_lines))
 
     print(f"[save] {split_name}: {len(pairs)} 샘플 → {img_out}")
 
