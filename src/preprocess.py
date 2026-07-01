@@ -44,7 +44,7 @@ def collect_pairs(raw_data: Path, limit: int | None = None) -> list[tuple[Path, 
         if not txt_path.exists():
             print(f"[warn] 목록 파일 없음: {txt_path}")
             continue
-        with open(txt_path) as f:
+        with open(txt_path, encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
                 if not line:
@@ -75,7 +75,7 @@ def convert_label(lbl_path: Path, img_w: int, img_h: int) -> list[str]:
     type 1~6  →  cls 0~5  (단순 -1 매핑)
     """
     yolo_lines: list[str] = []
-    with open(lbl_path) as f:
+    with open(lbl_path, encoding="utf-8") as f:
         for line in f:
             parts = line.strip().split()
             if len(parts) != 5:
@@ -158,10 +158,14 @@ def prepare_dataset(project_root: Path) -> Path | None:
     zip_path = project_root / "dataset.zip"
     extract_dir = project_root / "dataset"
     raw_data_dir = extract_dir / "PCBData"
+    raw_data_dir_nested = extract_dir / "dataset" / "PCBData"
 
     if raw_data_dir.exists():
         print(f"[prepare_dataset] 이미 데이터셋이 압축 해제되어 있습니다: {raw_data_dir}")
         return raw_data_dir
+    if raw_data_dir_nested.exists():
+        print(f"[prepare_dataset] 이미 데이터셋이 압축 해제되어 있습니다: {raw_data_dir_nested}")
+        return raw_data_dir_nested
 
     if not zip_path.exists():
         return None
@@ -170,8 +174,16 @@ def prepare_dataset(project_root: Path) -> Path | None:
     import zipfile
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_dir)
-    print(f"[prepare_dataset] 압축 해제 완료: {raw_data_dir}")
-    return raw_data_dir
+        
+    if raw_data_dir.exists():
+        print(f"[prepare_dataset] 압축 해제 완료: {raw_data_dir}")
+        return raw_data_dir
+    elif raw_data_dir_nested.exists():
+        print(f"[prepare_dataset] 압축 해제 완료: {raw_data_dir_nested}")
+        return raw_data_dir_nested
+    else:
+        print("[prepare_dataset] 압축 해제 완료했으나 PCBData를 찾을 수 없습니다.")
+        return extract_dir
 
 
 def main(config_path: str = "config.yaml", limit: int | None = None) -> None:
