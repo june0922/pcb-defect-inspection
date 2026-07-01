@@ -1,58 +1,31 @@
-# PCB 결함 검사 시스템 설정 파일 — Team Convex
-# env 키 하나만 바꾸면 서버/콜랩/로컬 경로가 전체 전환됨
-
-env: local  # server | colab | local
-
-# ---------------------------------------------------------------------------
-# 환경별 경로
-# ---------------------------------------------------------------------------
+env: local
+judge:
+  conf_threshold: 0.5
+  iou_threshold: 0.45
+  review_band:
+  - 0.3
+  - 0.5
 paths:
-  server:
-    raw_data: /shared/datasets/DeepPCB/PCBData  # 공용·읽기전용, 복사 금지
-    project_root: /home/team_a/pcb-project      # processed / weights / runs 모두 여기
   colab:
-    raw_data: /content/DeepPCB/PCBData
     project_root: /content/pcb-project
+    raw_data: /content/DeepPCB/PCBData
   local:
-    raw_data: /Users/hwangminjun/DeepPCB/PCBData  # git clone 한 DeepPCB (gitignore 됨)
-    project_root: /Users/hwangminjun/project
-
-# ---------------------------------------------------------------------------
-# 데이터 분할
-# ---------------------------------------------------------------------------
-split:
-  train: 0.7
-  val: 0.2
-  test: 0.1
-  random_state: 42
-
-# ---------------------------------------------------------------------------
-# 전처리
-# ---------------------------------------------------------------------------
+    project_root: .
+    raw_data: dataset/PCBData
+  server:
+    project_root: /home/team_a/pcb-project
+    raw_data: /shared/datasets/DeepPCB/PCBData
 preprocess:
   img_size: 640
-
-# ---------------------------------------------------------------------------
-# 학습
-# ---------------------------------------------------------------------------
+split:
+  random_state: 42
+  test: 0.1
+  train: 0.7
+  val: 0.2
 train:
-  model: yolov8n.pt  # TODO(찾기): 성능 확인 후 yolov8s.pt → yolov8m.pt 단계 확장
-  epochs: 100        # TODO(찾기): patience 도달 전 최대 epoch
-  batch: 16          # TODO(찾기): GPU 메모리에 따라 조정
+  batch: 16
+  epochs: 100
   imgsz: 640
+  model: yolov8n.pt
+  patience: 50
   workers: 4
-  patience: 50       # TODO(찾기): 조기 종료 patience, epochs 와 함께 조정
-  # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW)
-  # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v)
-
-# ---------------------------------------------------------------------------
-# 보드 판정 (pcb_inspect.py)  — recall 우선 설계
-# conf ≥ conf_threshold    → 확실한 결함 → NG
-# review_band 구간         → 애매한 결함 → REVIEW (수동 검토)
-# 결함 없음                → OK
-# ---------------------------------------------------------------------------
-judge:
-  conf_threshold: 0.5    # TODO(찾기): 실험으로 조정 (낮출수록 recall ↑, precision ↓)
-  iou_threshold: 0.45    # TODO(찾기): NMS IoU 임계값
-  review_band: [0.3, 0.5]  # [하한, conf_threshold) — 하한을 낮게 잡아 불량 놓침 최소화
-  # TODO(개선): 클래스별 spec 룰 (예: pinhole 1개도 NG, open/short N개 이상 NG 등)

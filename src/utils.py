@@ -9,7 +9,7 @@ sys.path.append( str(Path(__file__).parent))
 
 def load_config(path: str = "config.yaml") -> dict:
     """config.yaml 을 로드해 dict 로 반환."""
-    with open(path, "r") as f:
+    with open(path, "r", encoding="utf-8") as f:
         return yaml.safe_load(f)
 
 
@@ -30,6 +30,7 @@ def get_paths(cfg: dict) -> dict[str, Path]:
 
     paths = {
         "raw_data": raw_data,
+        "project_root": project_root,
         "processed": project_root / "data" / "processed",
         "weights": project_root / "weights",
         "runs": project_root / "runs",

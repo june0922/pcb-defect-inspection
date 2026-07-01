@@ -24,11 +24,11 @@ from utils import load_config, get_paths
 
 def build_data_yaml(processed: Path, base_yaml: str = "data.yaml") -> Path:
     """data.yaml 의 path 플레이스홀더를 실제 processed 경로로 채워 임시 파일 반환."""
-    with open(base_yaml, "r") as f:
+    with open(base_yaml, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    data["path"] = str(processed)
+    data["path"] = str(processed.resolve())
     tmp = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         yaml.dump(data, f)
     return tmp
 
