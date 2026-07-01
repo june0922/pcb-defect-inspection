@@ -29,3 +29,9 @@ train:
   model: yolov8n.pt
   patience: 50
   workers: 4
+tune:
+  epochs: 30
+  imgsz: 640
+  iterations: 30
+  model: yolov8n.pt
+  workers: 4
