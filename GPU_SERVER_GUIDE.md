@@ -98,22 +98,18 @@ CUDA_VISIBLE_DEVICES=0 python src/train.py
 * **기본 작업 폴더:** `~/workspace`
 * **공용 데이터/모델 폴더:** `/data/inha/shared`
 
-#### 팀별 계정 및 포트
-* **1팀:** team01 (홈: `/data/inha/team01`, Jupyter 포트: `8881`)
-* **2팀:** team02 (홈: `/data/inha/team02`, Jupyter 포트: `8882`)
-* **3팀:** team03 (홈: `/data/inha/team03`, Jupyter 포트: `8883`)
-* **4팀:** team04 (홈: `/data/inha/team04`, Jupyter 포트: `8884`)
-* **5팀:** team05 (홈: `/data/inha/team05`, Jupyter 포트: `8885`)
+#### 계정 및 포트 정보
+* **계정명:** team03 (홈 디렉토리: `/data/inha/team03`, Jupyter 권장 포트: `8883`)
 * *초기 비밀번호는 별도 공지. 최초 로그인 시 비밀번호 변경을 요구받을 수 있습니다.*
 
 ### 2. 서버 접속 방법
-* 3팀 접속 예시: `ssh team03@165.246.170.53`
+* 접속 명령어: `ssh team03@165.246.170.53`
 
 ### 3. 디렉토리 구조
 ```text
 /data/inha
-├── team01 ~ team05
-│   ├── workspace (팀별 작업 공간)
+├── team03
+│   ├── workspace (작업 공간)
 │   └── miniforge3 (Conda 설치 경로)
 └── shared
     ├── datasets (공용 데이터셋)
