@@ -151,11 +151,42 @@ def save_yolo_format(
     print(f"[save] {split_name}: {len(pairs)} 샘플 → {img_out}")
 
 
+def prepare_dataset(project_root: Path) -> Path | None:
+    """dataset.zip 파일이 있으면 압축을 풀고 해당 경로를 반환합니다.
+    이미 풀려있으면 압축 해제를 건너뜁니다.
+    """
+    zip_path = project_root / "dataset.zip"
+    extract_dir = project_root / "dataset"
+    raw_data_dir = extract_dir / "PCBData"
+
+    if raw_data_dir.exists():
+        print(f"[prepare_dataset] 이미 데이터셋이 압축 해제되어 있습니다: {raw_data_dir}")
+        return raw_data_dir
+
+    if not zip_path.exists():
+        return None
+
+    print(f"[prepare_dataset] {zip_path} 압축 해제 중...")
+    import zipfile
+    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+        zip_ref.extractall(extract_dir)
+    print(f"[prepare_dataset] 압축 해제 완료: {raw_data_dir}")
+    return raw_data_dir
+
+
 def main(config_path: str = "config.yaml", limit: int | None = None) -> None:
     cfg = load_config(config_path)
     paths = get_paths(cfg)
 
-    pairs = collect_pairs(paths["raw_data"], limit=limit)
+    raw_data_path = paths["raw_data"]
+    
+    # 압축 해제 로직 추가 (기존 경로 덮어쓰기)
+    project_root = paths.get("project_root", Path("."))
+    extracted_path = prepare_dataset(project_root)
+    if extracted_path and extracted_path.exists():
+        raw_data_path = extracted_path
+
+    pairs = collect_pairs(raw_data_path, limit=limit)
     if not pairs:
         print("[ERROR] 페어를 찾지 못했습니다.")
         sys.exit(1)
