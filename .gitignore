@@ -3,11 +3,7 @@
 preprocessed_data/
 dataset/
 
-# 학습 산출물
-runs/
-weights/
-*.pt
-*.onnx
+# 학습 로그
 *.log
 
 # Python
