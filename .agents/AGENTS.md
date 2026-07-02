@@ -55,6 +55,7 @@
 # GitHub Pull Request Guidelines
 > **Trigger:** Apply these rules whenever the user requests pushing code to a new branch, creating a pull request, or uploading changes to GitHub.
 
+- **No Autonomous Pushes:** NEVER push, commit to remote, or create branches on GitHub without an explicit user instruction. This applies to all branches including `main`. Code fixes and edits may be made locally, but must not be pushed until the user explicitly says so.
 - **Provide Korean Title and Description**: After pushing changes to a remote branch on GitHub, the agent MUST automatically generate and print a Pull Request (PR) Title and Detailed Description in Korean (한국어) in the final response.
 - **Code Block Requirement**: The ENTIRE PR title and description MUST be output inside a single markdown code block (using ```markdown ... ```) so the user can easily copy the whole template using the copy button.
 - **PR Description Template**: The Korean description should be well-structured and include:

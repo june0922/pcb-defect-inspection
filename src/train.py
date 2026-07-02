@@ -61,7 +61,28 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         if not last_pt.exists():
             print(f"[Error] 이어학습을 할 수 없습니다. 마지막 체크포인트({last_pt})를 찾지 못했습니다.")
             sys.exit(1)
-        print(f"[{last_pt}] 파일로부터 이어학습을 시작합니다...")
+
+        # --- GradScaler 상태 패치 ---
+        # CPU로 저장된 체크포인트는 GradScaler state_dict가 {} (빈 딕셔너리).
+        # GPU에서 이어학습 시 load_state_dict({})를 호출하면 KeyError: 'scale' 발생.
+        # 조건: "scale" 키가 없으면 무조건 패치 (빈 딕셔너리 및 잘못된 키 모두 포함)
+        ckpt = torch.load(str(last_pt), map_location="cpu", weights_only=False)
+        scaler_state = ckpt.get("scaler", {})
+        if "scale" not in scaler_state:
+            print("[resume] ⚠️  체크포인트의 GradScaler 상태가 올바르지 않습니다 (CPU 저장본 또는 잘못된 패치).")
+            print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
+            ckpt["scaler"] = {
+                "scale": 65536.0,       # PyTorch GradScaler 직렬화 키 (언더스코어 없음)
+                "growth_factor": 2.0,
+                "backoff_factor": 0.5,
+                "growth_interval": 2000,
+                "_growth_tracker": 0,   # 이 키만 언더스코어 유지
+            }
+            torch.save(ckpt, str(last_pt))
+            print("[resume] ✅ 체크포인트 패치 완료. 이어학습을 시작합니다...")
+        else:
+            print(f"[resume] ✅ [{last_pt}] 파일로부터 이어학습을 시작합니다...")
+
         model = YOLO(str(last_pt))
     else:
         model = YOLO(tc["model"])
