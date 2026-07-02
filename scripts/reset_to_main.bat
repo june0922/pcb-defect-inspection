@@ -1,4 +1,6 @@
 @echo off
+:: Change directory to the project root
+cd /d "%~dp0.."
 echo ========================================================
 echo [WARNING] This will reset your local repository to match
 echo the remote 'main' branch.

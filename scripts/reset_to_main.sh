@@ -1,4 +1,7 @@
 #!/bin/bash
+# Change directory to the project root
+cd "$(dirname "$0")/.." || exit 1
+
 echo "========================================================"
 echo "[WARNING] This will reset your local repository to match"
 echo "the remote 'main' branch."
