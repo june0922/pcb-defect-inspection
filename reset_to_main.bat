@@ -1,24 +1,25 @@
 @echo off
-chcp 65001 >nul
 echo ========================================================
-echo [경고] 로컬 저장소를 원격 'main' 브랜치와 동일하게 초기화합니다.
-echo 커밋되지 않은 모든 작업 내역과 추가된 파일이 영구적으로 삭제됩니다!
+echo [WARNING] This will reset your local repository to match
+echo the remote 'main' branch.
+echo All uncommitted changes and untracked files will be
+echo PERMANENTLY DELETED!
 echo ========================================================
 echo.
-set /p confirm="정말로 초기화를 진행하시겠습니까? (Y/N): "
+set /p confirm="Are you sure you want to proceed? (Y/N): "
 
 if /i "%confirm%" neq "Y" (
     echo.
-    echo 작업이 취소되었습니다. 안전하게 종료합니다.
+    echo Operation cancelled. Exiting safely.
     pause
     exit /b
 )
 
 echo.
-echo 원격 main 브랜치 기준으로 초기화 중...
+echo Resetting to the latest origin/main...
 git fetch origin
 git reset --hard origin/main
 git clean -fd
 echo.
-echo 초기화가 완료되었습니다!
+echo Reset complete!
 pause
