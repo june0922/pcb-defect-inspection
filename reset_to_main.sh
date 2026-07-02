@@ -1,0 +1,27 @@
+#!/bin/bash
+echo "========================================================"
+echo "[WARNING] This will reset your local repository to match"
+echo "the remote 'main' branch."
+echo "All uncommitted changes and untracked files will be"
+echo "PERMANENTLY DELETED!"
+echo "========================================================"
+echo ""
+read -p "Are you sure you want to proceed? (Y/N): " confirm
+
+if [[ "$confirm" != "Y" && "$confirm" != "y" ]]; then
+    echo ""
+    echo "Operation cancelled. Exiting safely."
+    exit 0
+fi
+
+echo ""
+echo "Resetting to the latest origin/main..."
+git fetch origin
+git reset --hard origin/main
+
+# Force delete main directories to prevent issues
+rm -rf data dataset runs weights 2>/dev/null
+
+git clean -fdx
+echo ""
+echo "Reset complete!"
