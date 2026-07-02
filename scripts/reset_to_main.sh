@@ -22,8 +22,9 @@ echo "Resetting to the latest origin/main..."
 git fetch origin
 git reset --hard origin/main
 
-# Force delete main directories to prevent issues
-rm -rf preprocessed_data dataset runs weights 2>/dev/null
+# Force delete untracked large directories to prevent issues
+# NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch and restored by git reset above.
+rm -rf preprocessed_data dataset 2>/dev/null
 
 git clean -fdx
 echo ""
