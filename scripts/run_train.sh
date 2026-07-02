@@ -25,6 +25,14 @@ echo "========================================================"
 python scripts/show_config.py
 echo ""
 
+# --- Guard: check preprocessed data exists ---
+# NOTE: This path must match the 'processed' path resolved by config.yaml + get_paths()
+if [ ! -d "preprocessed_data/images/train" ]; then
+    echo "[Warning] preprocessed_data/images/train not found."
+    echo "          Consider running preprocessing first (select Y at the next prompt)."
+    echo ""
+fi
+
 read -p "Proceed with training using these parameters? (Y/N, default is N): " run_train
 if [[ ! "$run_train" =~ ^[Yy]$ ]]; then
     echo "Training cancelled by user."
