@@ -56,21 +56,32 @@ if not exist "runs\kfold" goto start_kfold
 
 echo ========================================================
 echo [Notice] Previous K-Fold results found in runs\kfold\.
-echo          Existing fold directories will be overwritten (exist_ok=True).
+echo   R = Resume  (skip completed folds, resume interrupted)
+echo   O = Overwrite (start all folds from scratch)
+echo   N = Cancel
 echo ========================================================
-set /p confirm_overwrite="Continue and overwrite existing results? (Y/N, default is N): "
-if /I not "%confirm_overwrite%"=="Y" (
-    echo K-Fold training cancelled by user.
-    pause
-    exit /b 0
+set /p kfold_action="Your choice (R/O/N, default is N): "
+
+if /I "%kfold_action%"=="R" (
+    set KFOLD_EXTRA=--resume
+    echo Resuming K-Fold from checkpoints...
+    goto start_kfold
 )
+if /I "%kfold_action%"=="O" (
+    set KFOLD_EXTRA=
+    echo Starting K-Fold from scratch (overwrite)...
+    goto start_kfold
+)
+echo K-Fold training cancelled by user.
+pause
+exit /b 0
 echo.
 
 :start_kfold
 echo ========================================================
 echo Starting YOLOv8 K-Fold Cross Validation...
 echo ========================================================
-python src\train_kfold.py --config config.yaml
+python src\train_kfold.py --config config.yaml %KFOLD_EXTRA%
 if errorlevel 1 (
     echo.
     echo [Error] K-Fold training encountered an error.

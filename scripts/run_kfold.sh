@@ -51,10 +51,19 @@ echo ""
 if [ -d "runs/kfold" ]; then
     echo "========================================================"
     echo "[Notice] Previous K-Fold results found in runs/kfold/."
-    echo "         Existing fold directories will be overwritten (exist_ok=True)."
+    echo "  R = Resume  (skip completed folds, resume interrupted)"
+    echo "  O = Overwrite (start all folds from scratch)"
+    echo "  N = Cancel"
     echo "========================================================"
-    read -p "Continue and overwrite existing results? (Y/N, default is N): " confirm_overwrite
-    if [[ ! "$confirm_overwrite" =~ ^[Yy]$ ]]; then
+    read -p "Your choice (R/O/N, default is N): " kfold_action
+
+    if [[ "$kfold_action" =~ ^[Rr]$ ]]; then
+        KFOLD_EXTRA="--resume"
+        echo "Resuming K-Fold from checkpoints..."
+    elif [[ "$kfold_action" =~ ^[Oo]$ ]]; then
+        KFOLD_EXTRA=""
+        echo "Starting K-Fold from scratch (overwrite)..."
+    else
         echo "K-Fold training cancelled by user."
         exit 0
     fi
@@ -64,7 +73,8 @@ fi
 echo "========================================================"
 echo "Starting YOLOv8 K-Fold Cross Validation..."
 echo "========================================================"
-python src/train_kfold.py --config config.yaml
+# shellcheck disable=SC2086
+python src/train_kfold.py --config config.yaml $KFOLD_EXTRA
 if [ $? -ne 0 ]; then
     echo ""
     echo "[Error] K-Fold training encountered an error."
