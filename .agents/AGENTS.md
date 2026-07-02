@@ -56,7 +56,8 @@
 > **Trigger:** Apply these rules whenever the user requests pushing code to a new branch, creating a pull request, or uploading changes to GitHub.
 
 - **Provide Korean Title and Description**: After pushing changes to a remote branch on GitHub, the agent MUST automatically generate and print a Pull Request (PR) Title and Detailed Description in Korean (한국어) in the final response.
-- **PR Description Template**: The Korean description should be well-structured using markdown and include:
+- **Code Block Requirement**: The ENTIRE PR title and description MUST be output inside a single markdown code block (using ```markdown ... ```) so the user can easily copy the whole template using the copy button.
+- **PR Description Template**: The Korean description should be well-structured and include:
   - **제목 (Title)**: A concise Korean title prefixed with semantic versioning (e.g., `feat:`, `fix:`, `refactor:`).
   - **개요 (Overview)**: Summary of the purpose of the PR.
   - **주요 변경 사항 (Key Changes)**: Bullet points listing modified/created files and their descriptions.
