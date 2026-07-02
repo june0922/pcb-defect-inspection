@@ -19,7 +19,7 @@ echo.
 echo Resetting to the latest origin/main...
 git fetch origin
 git reset --hard origin/main
-git clean -fd
+git clean -fdx
 echo.
 echo Reset complete!
 pause
