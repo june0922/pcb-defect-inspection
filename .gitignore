@@ -1,15 +1,10 @@
-# DeepPCB 원본 데이터 (로컬 클론, 코드만 git 추적)
-DeepPCB/
 
 # 데이터 — raw 는 /shared 참조라 프로젝트에 없고, processed 만 preprocessed_data/ 에 생성
 preprocessed_data/
 dataset/
 
-# 학습 산출물
-runs/
-weights/
-*.pt
-*.onnx
+# 학습 로그
+*.log
 
 # Python
 __pycache__/
@@ -37,3 +32,7 @@ env/
 # IDE
 .vscode/
 .idea/
+
+# Windows
+Thumbs.db
+desktop.ini
