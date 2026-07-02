@@ -59,13 +59,17 @@ echo ""
 if [ -d "runs/tune" ]; then
     echo "========================================================"
     echo "[Notice] Previous tuning results found in runs/tune/."
-    echo "  O = Overwrite (start tuning from scratch)"
-    echo "  N = Cancel (keep existing results)"
+    echo "  R = Resume  (continue from last completed iteration)"
+    echo "  O = Overwrite (delete results and start from scratch)"
+    echo "  N = Cancel (keep existing results and exit)"
     echo "========================================================"
-    read -p "Your choice (O/N, default is N): " tune_action
+    read -p "Your choice (R/O/N, default is N): " tune_action
 
-    if [[ "$tune_action" =~ ^[Oo]$ ]]; then
-        echo "Overwriting previous tuning results..."
+    if [[ "$tune_action" =~ ^[Rr]$ ]]; then
+        echo "Resuming previous tuning run..."
+    elif [[ "$tune_action" =~ ^[Oo]$ ]]; then
+        echo "Deleting previous tuning results and starting from scratch..."
+        rm -rf "runs/tune"
     else
         echo "Tuning cancelled by user."
         exit 0
@@ -76,7 +80,7 @@ fi
 echo "========================================================"
 echo "Starting YOLOv8 Hyperparameter Tuning..."
 echo "[Note] This process runs multiple short training cycles."
-echo "       Estimated time: iterations x epochs duration."
+echo "       tune.py auto-detects runs/tune/tune_results.ndjson to resume or start fresh."
 echo "========================================================"
 python src/tune.py --config config.yaml
 if [ $? -ne 0 ]; then
