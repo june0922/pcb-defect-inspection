@@ -11,6 +11,9 @@ import tempfile
 from collections import Counter
 from pathlib import Path
 
+# 프로젝트 루트: src/ 의 부모 디렉토리
+PROJECT_ROOT = Path(__file__).parent.parent
+
 import yaml
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
@@ -65,17 +68,40 @@ def get_representative_classes(labels: list[Path], num_classes: int = 6):
     return y
 
 
-def build_kfold_yaml(processed: Path, train_txt: Path, val_txt: Path, base_yaml: str = "data.yaml") -> Path:
-    """data.yaml 템플릿을 읽어 동적인 Fold 설정 YAML을 생성합니다."""
+def build_kfold_yaml(
+    train_txt: Path,
+    val_txt: Path,
+    base_yaml: Path | None = None,
+) -> Path:
+    """data.yaml 템플릿을 읽어 동적인 Fold 설정 YAML을 생성합니다.
+
+    Args:
+        train_txt: 학습 이미지 경로 목록 txt 파일 (절대 경로)
+        val_txt:   검증 이미지 경로 목록 txt 파일 (절대 경로)
+        base_yaml: 기반 data.yaml 경로. None 이면 PROJECT_ROOT/data.yaml 사용.
+
+    Returns:
+        생성된 임시 YAML 파일의 Path.
+    """
+    if base_yaml is None:
+        base_yaml = PROJECT_ROOT / "data.yaml"
+
     with open(base_yaml, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
-    data["path"] = str(processed.resolve())
+
+    # train / val 을 절대 경로 txt 파일로 직접 지정
+    # (YOLO 는 txt 파일 내 경로 목록을 image list 로 인식)
     data["train"] = str(train_txt.resolve())
     data["val"] = str(val_txt.resolve())
-    
-    tmp = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp, "w", encoding="utf-8") as f:
-        yaml.dump(data, f)
+    # path 필드는 txt 절대 경로 방식에서는 불필요하므로 제거
+    data.pop("path", None)
+
+    # mktemp() 대신 NamedTemporaryFile 사용 (TOCTOU race condition 방지)
+    with tempfile.NamedTemporaryFile(
+        suffix=".yaml", mode="w", delete=False, encoding="utf-8"
+    ) as tmp_f:
+        yaml.dump(data, tmp_f)
+        tmp = Path(tmp_f.name)
     return tmp
 
 
@@ -121,7 +147,7 @@ def main(config_path: str = "config.yaml") -> None:
             f.write("\n".join(str(p.resolve()) for p in val_imgs))
             
         # fold용 임시 yaml 작성
-        data_yaml = build_kfold_yaml(processed_dir, train_txt, val_txt)
+        data_yaml = build_kfold_yaml(train_txt, val_txt)
         
         model = YOLO(tc["model"])
         
