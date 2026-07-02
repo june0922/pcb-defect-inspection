@@ -34,9 +34,9 @@ pcb-project/
 
 | 환경 | env 값 | raw_data | project_root |
 |---|---|---|---|
-| 서버 (공용) | `server` | `/shared/datasets/DeepPCB/PCBData` (읽기전용·복사 금지) | `/home/team_a/pcb-project` |
-| 콜랩 | `colab` | `/content/DeepPCB/PCBData` | `/content/pcb-project` |
-| 로컬 | `local` | `~/DeepPCB/PCBData` (프로젝트 외부 경로) | 레포 루트 |
+| 서버 (공용) | `server` | 미정 | 미정 |
+| 콜랩 | `colab` | 미정 | 미정 |
+| 로컬 | `local` | `dataset/PCBData` | `.` (현재 디렉토리) |
 
 `config.yaml` 맨 위 `env:` 한 줄만 바꾸면 모든 경로가 전환된다.
 
