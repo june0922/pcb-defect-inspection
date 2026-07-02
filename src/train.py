@@ -61,7 +61,27 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         if not last_pt.exists():
             print(f"[Error] 이어학습을 할 수 없습니다. 마지막 체크포인트({last_pt})를 찾지 못했습니다.")
             sys.exit(1)
-        print(f"[{last_pt}] 파일로부터 이어학습을 시작합니다...")
+
+        # --- GradScaler 상태 패치 ---
+        # CPU로 저장된 체크포인트는 GradScaler 상태가 비어 있어,
+        # GPU에서 이어학습 시 "source state dict is empty" RuntimeError가 발생함.
+        # 이를 방지하기 위해 비어 있는 scaler 상태를 GPU 기본값으로 교체한다.
+        ckpt = torch.load(str(last_pt), map_location="cpu", weights_only=False)
+        if not ckpt.get("scaler"):
+            print("[resume] ⚠️  체크포인트의 GradScaler 상태가 비어 있습니다 (CPU 저장본).")
+            print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
+            ckpt["scaler"] = {
+                "_scale": torch.tensor(65536.0),
+                "_growth_factor": 2.0,
+                "_backoff_factor": 0.5,
+                "_growth_interval": 2000,
+                "_init_growth_tracker": 0,
+            }
+            torch.save(ckpt, str(last_pt))
+            print("[resume] ✅ 체크포인트 패치 완료. 이어학습을 시작합니다...")
+        else:
+            print(f"[resume] ✅ [{last_pt}] 파일로부터 이어학습을 시작합니다...")
+
         model = YOLO(str(last_pt))
     else:
         model = YOLO(tc["model"])
