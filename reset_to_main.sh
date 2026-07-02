@@ -20,7 +20,7 @@ git fetch origin
 git reset --hard origin/main
 
 # Force delete main directories to prevent issues
-rm -rf data dataset runs weights 2>/dev/null
+rm -rf preprocessed_data dataset runs weights 2>/dev/null
 
 git clean -fdx
 echo ""
