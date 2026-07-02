@@ -14,7 +14,8 @@ pcb-project/
 ├── config.yaml              # 전체 설정 (env 한 줄로 서버/콜랩/로컬 전환)
 ├── data.yaml                # YOLO 데이터셋 정의
 ├── requirements.txt
-├── .gitignore               # data/ runs/ weights/ *.pt / DeepPCB/ 제외
+├── .gitignore               # 전처리 데이터 및 텍스트 로그 제외
+├── .gitattributes           # dataset.zip, *.pt 등 대용량 파일 Git LFS 추적
 ├── README.md
 ├── src/
 │   ├── __init__.py
@@ -35,7 +36,7 @@ pcb-project/
 |---|---|---|---|
 | 서버 (공용) | `server` | `/shared/datasets/DeepPCB/PCBData` (읽기전용·복사 금지) | `/home/team_a/pcb-project` |
 | 콜랩 | `colab` | `/content/DeepPCB/PCBData` | `/content/pcb-project` |
-| 로컬 | `local` | `~/DeepPCB/PCBData` (gitignore 됨) | 레포 루트 |
+| 로컬 | `local` | `~/DeepPCB/PCBData` (프로젝트 외부 경로) | 레포 루트 |
 
 `config.yaml` 맨 위 `env:` 한 줄만 바꾸면 모든 경로가 전환된다.
 
