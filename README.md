@@ -32,13 +32,14 @@ pcb-project/
 
 ### 경로 규칙
 
+프로젝트 루트에 있는 `config.yaml` 파일의 최상단 `env` 값을 변경(예: `env: local`)하여 실행 환경을 전환할 수 있습니다. 
+현재 모든 환경은 별도의 외부 공용 폴더를 사용하지 않고 프로젝트 내부 경로를 기준으로 동작합니다.
+
 | 환경 | env 값 | raw_data | project_root |
 |---|---|---|---|
-| 서버 (공용) | `server` | 미정 | 미정 |
-| 콜랩 | `colab` | 미정 | 미정 |
+| 서버 | `server` | `dataset/PCBData` | `.` (현재 디렉토리) |
+| 콜랩 | `colab` | `dataset/PCBData` | `/content/pcb-project` |
 | 로컬 | `local` | `dataset/PCBData` | `.` (현재 디렉토리) |
-
-`config.yaml` 맨 위 `env:` 한 줄만 바꾸면 모든 경로가 전환된다.
 
 ---
 
@@ -114,19 +115,7 @@ python src/pcb_inspect.py preprocessed_data/images/test/<아무_이미지>.jpg
 # 기대: 판정(OK/NG/REVIEW) + 결함 목록 출력
 ```
 
----
 
-## 환경 전환 방법
-
-`config.yaml` 첫 번째 줄만 변경:
-
-```yaml
-env: local   # → server 또는 colab 으로 변경하면 모든 경로 전환
-```
-
-서버에서는 `raw_data` 가 읽기전용 공용 경로를 가리키므로 전처리 결과(preprocessed_data/)는 반드시 `project_root` 아래에만 기록된다.
-
----
 
 ## 판정 로직 개요 (recall 우선)
 
