@@ -17,6 +17,9 @@ import argparse
 import tempfile
 from pathlib import Path
 
+# 프로젝트 루트: src/ 의 부모 디렉토리
+PROJECT_ROOT = Path(__file__).parent.parent
+
 import torch
 
 import yaml
@@ -30,9 +33,12 @@ def build_data_yaml(processed: Path, base_yaml: str = "data.yaml") -> Path:
     with open(base_yaml, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     data["path"] = str(processed.resolve())
-    tmp = Path(tempfile.mktemp(suffix=".yaml"))
-    with open(tmp, "w", encoding="utf-8") as f:
-        yaml.dump(data, f)
+    # mktemp() 대신 NamedTemporaryFile 사용 (TOCTOU 경쟁 조건 방지)
+    with tempfile.NamedTemporaryFile(
+        suffix=".yaml", mode="w", delete=False, encoding="utf-8"
+    ) as tmp_f:
+        yaml.dump(data, tmp_f)
+        tmp = Path(tmp_f.name)
     return tmp
 
 
@@ -85,7 +91,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
 
         model = YOLO(str(last_pt))
     else:
-        model = YOLO(tc["model"])
+        model = YOLO(str(PROJECT_ROOT / tc["model"]))
 
     # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW) 파라미터 추가
     # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v) 설정

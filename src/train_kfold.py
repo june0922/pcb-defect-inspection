@@ -14,10 +14,10 @@ from pathlib import Path
 # 프로젝트 루트: src/ 의 부모 디렉토리
 PROJECT_ROOT = Path(__file__).parent.parent
 
+import torch
 import yaml
 import numpy as np
 from sklearn.model_selection import StratifiedKFold
-from ultralytics import YOLO
 
 sys.path.append(str(Path(__file__).parent))
 from utils import load_config, get_paths
@@ -106,13 +106,25 @@ def build_kfold_yaml(
 
 
 def main(config_path: str = "config.yaml") -> None:
+    from ultralytics import YOLO
+
     cfg = load_config(config_path)
     paths = get_paths(cfg)
     tc = cfg["train"]
     kf_cfg = cfg.get("kfold", {"k": 5, "random_state": 42})
-    
+
     k = kf_cfg["k"]
     random_state = kf_cfg["random_state"]
+
+    # --- 디바이스 확인 및 출력 ---
+    device = tc.get("device", 0)  # config.yaml의 train.device (기본값: 0=GPU)
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        print(f"[device] ✅ GPU 사용: {gpu_name}")
+    else:
+        print("[device] ⚠️  GPU를 찾을 수 없습니다. CPU로 학습합니다.")
+        print("         Colab의 경우 '런타임 > 런타임 유형 변경 > T4 GPU'를 선택하세요.")
+        device = "cpu"
     
     processed_dir = paths["processed"]
     images, labels = get_image_and_label_paths(processed_dir)
@@ -148,9 +160,12 @@ def main(config_path: str = "config.yaml") -> None:
             
         # fold용 임시 yaml 작성
         data_yaml = build_kfold_yaml(train_txt, val_txt)
-        
-        model = YOLO(tc["model"])
-        
+
+        # 모델 경로: PROJECT_ROOT 기준 절대 경로로 해석하여 실행 위치와 무관하게 동작
+        model_path = PROJECT_ROOT / tc["model"]
+        model = YOLO(str(model_path))
+
+        fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
         results = model.train(
             data=str(data_yaml),
             epochs=tc["epochs"],
@@ -158,20 +173,21 @@ def main(config_path: str = "config.yaml") -> None:
             imgsz=tc["imgsz"],
             workers=tc.get("workers", 4),
             patience=tc.get("patience", 50),
+            device=device,                     # GPU(0) 또는 CPU 명시
             project=str(paths["runs"] / "kfold"),
-            name=f"fold_{fold}",
+            name=f"fold_{fold_num}",
             exist_ok=True,
         )
-        
-        # best.pt 백업
+
+        # best.pt 백업 (폴드 번호 1-indexed로 통일)
         best_src = Path(results.save_dir) / "weights" / "best.pt"
-        best_dst = paths["weights"] / f"best_fold_{fold}.pt"
+        best_dst = paths["weights"] / f"best_fold_{fold_num}.pt"
         if best_src.exists():
             shutil.copy(best_src, best_dst)
-            print(f"[kfold] Fold {fold} 최적 가중치 저장 완료: {best_dst}")
+            print(f"[kfold] Fold {fold_num} 최적 가중치 저장 완료: {best_dst}")
         else:
-            print(f"[warn] Fold {fold} 최적 가중치를 찾지 못했습니다: {best_src}")
-            
+            print(f"[warn] Fold {fold_num} 최적 가중치를 찾지 못했습니다: {best_src}")
+
         data_yaml.unlink(missing_ok=True)
         # 텍스트 파일은 디버깅/재현을 위해 남겨두는 것도 좋지만, 필요하다면 삭제 가능
         # train_txt.unlink(missing_ok=True)
