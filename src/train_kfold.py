@@ -1,7 +1,12 @@
 """YOLOv8 K-Fold 교차 검증 학습 스크립트.
 
 실행:
-    python src/train_kfold.py [--config config.yaml]
+    python src/train_kfold.py [--config config.yaml] [--resume]
+
+--resume 플래그:
+    완료된 fold(best_fold_N.pt 존재) → 건너뜀
+    중단된 fold(last.pt 존재)       → last.pt 에서 이어 학습
+    미시작 fold                      → 처음부터 학습
 """
 
 import sys
@@ -105,7 +110,30 @@ def build_kfold_yaml(
     return tmp
 
 
-def main(config_path: str = "config.yaml") -> None:
+def patch_grad_scaler(last_pt: Path) -> None:
+    """CPU 저장 체크포인트의 GradScaler 상태가 없을 경우 기본값으로 패치.
+
+    GPU 이어학습 시 load_state_dict({}) 호출로 KeyError: 'scale' 발생하는 문제를 방지.
+    """
+    ckpt = torch.load(str(last_pt), map_location="cpu", weights_only=False)
+    scaler_state = ckpt.get("scaler", {})
+    if "scale" not in scaler_state:
+        print("[resume] ⚠️  GradScaler 상태가 올바르지 않습니다 (CPU 저장본 또는 잘못된 패치).")
+        print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
+        ckpt["scaler"] = {
+            "scale": 65536.0,
+            "growth_factor": 2.0,
+            "backoff_factor": 0.5,
+            "growth_interval": 2000,
+            "_growth_tracker": 0,
+        }
+        torch.save(ckpt, str(last_pt))
+        print("[resume] ✅ 체크포인트 패치 완료.")
+    else:
+        print(f"[resume] ✅ GradScaler 상태 정상 확인.")
+
+
+def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     from ultralytics import YOLO
 
     cfg = load_config(config_path)
@@ -144,7 +172,22 @@ def main(config_path: str = "config.yaml") -> None:
     images_arr = np.array(images)
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y)):
-        print(f"\n{'='*40}\n[kfold] Fold {fold + 1}/{k} 학습 시작\n{'='*40}")
+        fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
+
+        # --- Resume 모드: fold 상태 판별 ---
+        best_dst = paths["weights"] / f"best_fold_{fold_num}.pt"
+        last_pt  = paths["runs"] / "kfold" / f"fold_{fold_num}" / "weights" / "last.pt"
+
+        if resume and best_dst.exists():
+            print(f"\n[kfold] Fold {fold_num}/{k} → 이미 완료됨 ({best_dst.name} 존재). 건너뜁니다.")
+            continue
+
+        fold_resume = resume and last_pt.exists()
+
+        print(f"\n{'='*40}\n[kfold] Fold {fold_num}/{k} 학습 시작\n{'='*40}")
+        if fold_resume:
+            print(f"[resume] last.pt 발견: {last_pt}")
+            print(f"[resume] 이어 학습을 시작합니다...")
         
         train_imgs = images_arr[train_idx]
         val_imgs = images_arr[val_idx]
@@ -161,11 +204,14 @@ def main(config_path: str = "config.yaml") -> None:
         # fold용 임시 yaml 작성
         data_yaml = build_kfold_yaml(train_txt, val_txt)
 
-        # 모델 경로: PROJECT_ROOT 기준 절대 경로로 해석하여 실행 위치와 무관하게 동작
-        model_path = PROJECT_ROOT / tc["model"]
-        model = YOLO(str(model_path))
+        # 모델 로드: resume 이면 last.pt, 신규이면 base 모델
+        if fold_resume:
+            patch_grad_scaler(last_pt)
+            model = YOLO(str(last_pt))
+        else:
+            model_path = PROJECT_ROOT / tc["model"]
+            model = YOLO(str(model_path))
 
-        fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
         results = model.train(
             data=str(data_yaml),
             epochs=tc["epochs"],
@@ -177,6 +223,7 @@ def main(config_path: str = "config.yaml") -> None:
             project=str(paths["runs"] / "kfold"),
             name=f"fold_{fold_num}",
             exist_ok=True,
+            resume=fold_resume,                # ultralytics 내부 resume 활성화
         )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)
@@ -199,5 +246,10 @@ def main(config_path: str = "config.yaml") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume K-Fold from checkpoints. Skips completed folds, resumes interrupted folds from last.pt.",
+    )
     args = parser.parse_args()
-    main(args.config)
+    main(args.config, args.resume)
