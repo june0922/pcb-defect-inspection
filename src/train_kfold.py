@@ -1,0 +1,161 @@
+"""YOLOv8 K-Fold 교차 검증 학습 스크립트.
+
+실행:
+    python src/train_kfold.py [--config config.yaml]
+"""
+
+import sys
+import shutil
+import argparse
+import tempfile
+from collections import Counter
+from pathlib import Path
+
+import yaml
+import numpy as np
+from sklearn.model_selection import StratifiedKFold
+from ultralytics import YOLO
+
+sys.path.append(str(Path(__file__).parent))
+from utils import load_config, get_paths
+
+
+def get_image_and_label_paths(processed_dir: Path):
+    """train, val 폴더의 모든 이미지와 라벨 경로를 스캔하여 반환."""
+    images = []
+    labels = []
+    for split in ["train", "val"]:
+        img_dir = processed_dir / "images" / split
+        lbl_dir = processed_dir / "labels" / split
+        if img_dir.exists():
+            for img_path in img_dir.glob("*.jpg"):
+                lbl_path = lbl_dir / f"{img_path.stem}.txt"
+                if lbl_path.exists():
+                    images.append(img_path)
+                    labels.append(lbl_path)
+    return images, labels
+
+
+def get_representative_classes(labels: list[Path], num_classes: int = 6):
+    """각 이미지의 라벨 파일에서 가장 출현 빈도가 적은 클래스를 대표 클래스로 추출."""
+    # 1. 모든 클래스 출현 빈도 조사
+    overall_counts = Counter()
+    file_classes = []
+    for lbl_path in labels:
+        classes_in_file = set()
+        with open(lbl_path, "r", encoding="utf-8") as f:
+            for line in f:
+                parts = line.strip().split()
+                if not parts:
+                    continue
+                cls_id = int(parts[0])
+                classes_in_file.add(cls_id)
+                overall_counts[cls_id] += 1
+        file_classes.append(list(classes_in_file))
+        
+    # 2. 이미지별로 가장 희귀한 클래스를 대표로 지정
+    y = []
+    for classes in file_classes:
+        if not classes:
+            y.append(0)  # 배경 또는 라벨 없음
+        else:
+            # 빈도가 가장 낮은 클래스 선택
+            rarest = min(classes, key=lambda c: overall_counts.get(c, float('inf')))
+            y.append(rarest)
+    return y
+
+
+def build_kfold_yaml(processed: Path, train_txt: Path, val_txt: Path, base_yaml: str = "data.yaml") -> Path:
+    """data.yaml 템플릿을 읽어 동적인 Fold 설정 YAML을 생성합니다."""
+    with open(base_yaml, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f)
+    data["path"] = str(processed.resolve())
+    data["train"] = str(train_txt.resolve())
+    data["val"] = str(val_txt.resolve())
+    
+    tmp = Path(tempfile.mktemp(suffix=".yaml"))
+    with open(tmp, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+    return tmp
+
+
+def main(config_path: str = "config.yaml") -> None:
+    cfg = load_config(config_path)
+    paths = get_paths(cfg)
+    tc = cfg["train"]
+    kf_cfg = cfg.get("kfold", {"k": 5, "random_state": 42})
+    
+    k = kf_cfg["k"]
+    random_state = kf_cfg["random_state"]
+    
+    processed_dir = paths["processed"]
+    images, labels = get_image_and_label_paths(processed_dir)
+    
+    if not images:
+        print("[error] 학습할 이미지를 찾을 수 없습니다. 전처리를 먼저 수행하세요.")
+        return
+        
+    print(f"[kfold] 전체 데이터 수: {len(images)} (train + val 통합)")
+    
+    # 층화를 위한 타겟 라벨 추출
+    y = get_representative_classes(labels)
+    
+    # Stratified K-Fold 분할
+    skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=random_state)
+    
+    images_arr = np.array(images)
+    
+    for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y)):
+        print(f"\n{'='*40}\n[kfold] Fold {fold + 1}/{k} 학습 시작\n{'='*40}")
+        
+        train_imgs = images_arr[train_idx]
+        val_imgs = images_arr[val_idx]
+        
+        # fold용 txt 파일 작성
+        train_txt = processed_dir / f"train_fold_{fold}.txt"
+        val_txt = processed_dir / f"val_fold_{fold}.txt"
+        
+        with open(train_txt, "w", encoding="utf-8") as f:
+            f.write("\n".join(str(p.resolve()) for p in train_imgs))
+        with open(val_txt, "w", encoding="utf-8") as f:
+            f.write("\n".join(str(p.resolve()) for p in val_imgs))
+            
+        # fold용 임시 yaml 작성
+        data_yaml = build_kfold_yaml(processed_dir, train_txt, val_txt)
+        
+        model = YOLO(tc["model"])
+        
+        results = model.train(
+            data=str(data_yaml),
+            epochs=tc["epochs"],
+            batch=tc["batch"],
+            imgsz=tc["imgsz"],
+            workers=tc.get("workers", 4),
+            patience=tc.get("patience", 50),
+            project=str(paths["runs"] / "kfold"),
+            name=f"fold_{fold}",
+            exist_ok=True,
+        )
+        
+        # best.pt 백업
+        best_src = Path(results.save_dir) / "weights" / "best.pt"
+        best_dst = paths["weights"] / f"best_fold_{fold}.pt"
+        if best_src.exists():
+            shutil.copy(best_src, best_dst)
+            print(f"[kfold] Fold {fold} 최적 가중치 저장 완료: {best_dst}")
+        else:
+            print(f"[warn] Fold {fold} 최적 가중치를 찾지 못했습니다: {best_src}")
+            
+        data_yaml.unlink(missing_ok=True)
+        # 텍스트 파일은 디버깅/재현을 위해 남겨두는 것도 좋지만, 필요하다면 삭제 가능
+        # train_txt.unlink(missing_ok=True)
+        # val_txt.unlink(missing_ok=True)
+        
+    print(f"\n[kfold] 모든 {k}-Fold 학습이 완료되었습니다.")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--config", default="config.yaml")
+    args = parser.parse_args()
+    main(args.config)

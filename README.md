@@ -20,7 +20,8 @@ pcb-project/
 │   ├── __init__.py
 │   ├── utils.py             # load_config(), get_paths() — 환경 분기 공통화
 │   ├── preprocess.py        # DeepPCB → YOLO 포맷 변환 + 70/20/10 split
-│   ├── train.py             # YOLOv8 학습 (n→s→m)
+│   ├── train.py             # YOLOv8 단일 학습 베이스라인 (n→s→m)
+│   ├── train_kfold.py       # ★ YOLOv8 K-Fold 교차 검증 (Stratified)
 │   ├── evaluate.py          # test 세트 mAP / recall 평가
 │   ├── pcb_inspect.py       # ★ 보드 판정 레이어 (OK / NG / REVIEW)
 │   └── visualize.py         # EDA + 검사 결과 시각화
@@ -64,8 +65,11 @@ pip install -r requirements.txt
 # 1. 전처리 (DeepPCB raw → YOLO 포맷, 70/20/10 split)
 python src/preprocess.py
 
-# 2. 학습
+# 2. 학습 (단일 모델 테스트)
 python src/train.py
+
+# 2-1. 교차 검증 (K-Fold 모델 앙상블 준비용)
+python src/train_kfold.py
 
 # 3. 테스트 세트 평가
 python src/evaluate.py

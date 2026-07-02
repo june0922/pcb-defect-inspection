@@ -35,3 +35,6 @@ tune:
   iterations: 30
   model: yolov8n.pt
   workers: 4
+kfold:
+  k: 5
+  random_state: 42
