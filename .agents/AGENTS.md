@@ -1,4 +1,5 @@
 # Windows Batch (.bat) File Guidelines
+> **Trigger:** Apply these rules ONLY when creating or modifying a `.bat` file. No need to consult this section for other file types.
 
 ## Encoding
 - **Always declare UTF-8 first:** Every `.bat` file MUST begin with `chcp 65001 >nul` as the very first executable line, before any `echo`, `set`, or logic. Without this, any non-ASCII output (even from called Python scripts) may render as mojibake on Korean Windows (CP949 default).
@@ -22,6 +23,8 @@
 - **Never silently swallow errors:** Avoid constructs that hide failures. Only suppress output with `>nul` when the command is expected to fail gracefully (e.g., `rmdir ... 2>nul`).
 
 # Script Synchronization Guidelines
+> **Trigger:** Apply these rules ONLY when creating or modifying a `.bat` or `.sh` file. No need to consult this section for other file types.
+
 - **Keep .bat and .sh Consistent:** Any logic change made to a `.bat` file MUST be mirrored in the corresponding `.sh` file, and vice versa. This project maintains one `.bat` (Windows) and one `.sh` (Linux/macOS/GPU server) for every operational script.
 - **Sync Scope:** Synchronize ALL of the following when modifying either file:
   - Control flow: conditions (`if`/`else`), loops, early exits
