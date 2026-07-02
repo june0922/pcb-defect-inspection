@@ -71,11 +71,11 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             print("[resume] ⚠️  체크포인트의 GradScaler 상태가 비어 있습니다 (CPU 저장본).")
             print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
             ckpt["scaler"] = {
-                "_scale": torch.tensor(65536.0),
-                "_growth_factor": 2.0,
-                "_backoff_factor": 0.5,
-                "_growth_interval": 2000,
-                "_init_growth_tracker": 0,
+                "scale": 65536.0,       # PyTorch GradScaler 기본 초기값
+                "growth_factor": 2.0,
+                "backoff_factor": 0.5,
+                "growth_interval": 2000,
+                "_growth_tracker": 0,   # 이 키만 언더스코어 유지
             }
             torch.save(ckpt, str(last_pt))
             print("[resume] ✅ 체크포인트 패치 완료. 이어학습을 시작합니다...")
