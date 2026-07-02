@@ -29,6 +29,7 @@ train:
   model: weights/yolov8n.pt
   patience: 50
   workers: 4
+  device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
 tune:
   epochs: 30
   imgsz: 640

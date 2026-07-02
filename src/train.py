@@ -17,6 +17,8 @@ import argparse
 import tempfile
 from pathlib import Path
 
+import torch
+
 import yaml
 
 sys.path.append( str(Path(__file__).parent))
@@ -41,6 +43,16 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     paths = get_paths(cfg)
     tc = cfg["train"]
 
+    # --- 디바이스 확인 및 출력 ---
+    device = tc.get("device", 0)  # config.yaml의 train.device (기본값: 0=GPU)
+    if torch.cuda.is_available():
+        gpu_name = torch.cuda.get_device_name(0)
+        print(f"[device] ✅ GPU 사용: {gpu_name}")
+    else:
+        print("[device] ⚠️  GPU를 찾을 수 없습니다. CPU로 학습합니다.")
+        print("         Colab의 경우 '런타임 > 런타임 유형 변경 > T4 GPU'를 선택하세요.")
+        device = "cpu"
+
     data_yaml = build_data_yaml(paths["processed"])
 
     # 이어학습(Resume)인 경우 last.pt 가중치 불러오기
@@ -63,6 +75,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         imgsz=tc["imgsz"],
         workers=tc.get("workers", 4),
         patience=tc.get("patience", 50),  # TODO(찾기): 조기 종료 patience
+        device=device,                    # GPU(0) 또는 CPU 명시
         project=str(paths["runs"]),
         name="train",
         exist_ok=True,
