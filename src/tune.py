@@ -69,10 +69,23 @@ def main(config_path: str = "config.yaml") -> None:
     model_path = PROJECT_ROOT / tc.get("model", "weights/yolov8n.pt")
     model = YOLO(str(model_path))
 
-    print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
+    # 이어하기(resume) 여부 자동 감지
+    # Ultralytics Tuner 내부에서 exist_ok 값은 resume 값으로 덮여쓰임.
+    # tune_results.ndjson 존재 여부로 이어하기 여부를 결정해 resume=True 를 명시적으로 전달해야 함.
+    tune_results_file = paths["runs"] / "tune" / "tune_results.ndjson"
+    should_resume = tune_results_file.exists()
+
+    if should_resume:
+        completed = sum(1 for line in tune_results_file.open(encoding="utf-8") if line.strip())
+        total = tc.get("iterations", 100)
+        print(f"\n[tune] 이전 튜닝 결과 발견 — iteration {completed}/{total}에서 이어서 시작합니다.")
+    else:
+        print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
 
     # 튜닝 실행
+    # resume=True → Tuner 내부에서 exist_ok=True 로 전환되어 같은 runs/tune/ 디렉토리를 재사용하고
+    #               tune_results.ndjson 의 완료 행 수를 세어 다음 iteration 부터 자동으로 재개함.
     results = model.tune(
         data=str(data_yaml),
         epochs=tc.get("epochs", 15),
@@ -81,8 +94,8 @@ def main(config_path: str = "config.yaml") -> None:
         workers=tc.get("workers", 4),
         project=str(paths["runs"]),
         name="tune",
-        exist_ok=True,
-        use_ray=False,  # Ultralytics 기본 내장 GA 튜너 사용
+        resume=should_resume,   # exist_ok=True 대신 resume 을 정확히 사용
+        use_ray=False,           # Ultralytics 기본 내장 GA 튜너 사용
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")
