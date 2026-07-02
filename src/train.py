@@ -28,8 +28,19 @@ sys.path.append( str(Path(__file__).parent))
 from utils import load_config, get_paths
 
 
-def build_data_yaml(processed: Path, base_yaml: str = "data.yaml") -> Path:
-    """data.yaml 의 path 플레이스홀더를 실제 processed 경로로 채워 임시 파일 반환."""
+def build_data_yaml(processed: Path, base_yaml: Path | None = None) -> Path:
+    """data.yaml 의 path 플레이스홀더를 실제 processed 경로로 채워 임시 파일 반환.
+
+    Args:
+        processed: 전처리된 데이터의 절대 경로.
+        base_yaml: 기반 data.yaml 경로. None 이면 PROJECT_ROOT/data.yaml 사용.
+
+    Returns:
+        생성된 임시 YAML 파일의 Path.
+    """
+    if base_yaml is None:
+        base_yaml = PROJECT_ROOT / "data.yaml"
+
     with open(base_yaml, "r", encoding="utf-8") as f:
         data = yaml.safe_load(f)
     data["path"] = str(processed.resolve())
