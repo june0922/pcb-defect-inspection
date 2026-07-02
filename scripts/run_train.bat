@@ -21,9 +21,37 @@ if /I "%run_pre%"=="Y" (
 
 echo.
 echo ========================================================
+echo Current Configuration Parameters:
+echo ========================================================
+python scripts\show_config.py
+echo.
+
+set /p run_train="Proceed with training using these parameters? (Y/N, default is N): "
+if /I not "%run_train%"=="Y" (
+    echo Training cancelled by user.
+    pause
+    exit /b
+)
+
+echo.
+
+set TRAIN_CMD=python src\train.py --config config.yaml
+if not exist "runs\train\weights\last.pt" goto start_train
+
+echo ========================================================
+echo [Notice] Found a previous training checkpoint (last.pt).
+echo ========================================================
+set /p do_resume="Do you want to resume training from this checkpoint? (Y/N, default is N): "
+if /I "%do_resume%"=="Y" (
+    set TRAIN_CMD=python src\train.py --config config.yaml --resume
+)
+echo.
+
+:start_train
+echo ========================================================
 echo Starting YOLOv8 Model Training...
 echo ========================================================
-python src\train.py --config config.yaml
+%TRAIN_CMD%
 
 echo.
 echo ========================================================
