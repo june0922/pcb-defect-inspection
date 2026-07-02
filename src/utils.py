@@ -31,7 +31,7 @@ def get_paths(cfg: dict) -> dict[str, Path]:
     paths = {
         "raw_data": raw_data,
         "project_root": project_root,
-        "processed": project_root / "data" / "processed",
+        "processed": project_root / "preprocessed_data",
         "weights": project_root / "weights",
         "runs": project_root / "runs",
     }

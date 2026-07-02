@@ -4,7 +4,7 @@
 # (ultralytics는 절대 경로를 받으므로 런타임에 주입)
 
 # TODO: train.py 에서 paths['processed'] 를 읽어 아래 경로를 채울 것
-path: PLACEHOLDER_SET_BY_TRAIN   # project_root/data/processed
+path: PLACEHOLDER_SET_BY_TRAIN   # project_root/preprocessed_data
 train: images/train
 val:   images/val
 test:  images/test
