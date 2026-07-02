@@ -34,6 +34,7 @@ python scripts\show_config.py
 echo.
 
 :: --- Guard: check preprocessed data exists ---
+:: NOTE: This path must match the 'processed' path resolved by config.yaml + get_paths()
 if not exist "preprocessed_data\images\train" (
     echo [Error] preprocessed_data\images\train not found.
     echo         Please run preprocessing first.

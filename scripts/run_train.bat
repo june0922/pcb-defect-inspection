@@ -26,6 +26,14 @@ echo ========================================================
 python scripts\show_config.py
 echo.
 
+:: --- Guard: check preprocessed data exists ---
+:: NOTE: This path must match the 'processed' path resolved by config.yaml + get_paths()
+if not exist "preprocessed_data\images\train" (
+    echo [Warning] preprocessed_data\images\train not found.
+    echo           Consider running preprocessing first (select Y at the next prompt).
+    echo.
+)
+
 set /p run_train="Proceed with training using these parameters? (Y/N, default is N): "
 if /I not "%run_train%"=="Y" (
     echo Training cancelled by user.
