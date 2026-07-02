@@ -91,7 +91,7 @@ pip install -r requirements.txt
 
 # 3. 전처리 — 50장만 처리 (스모크용)
 python src/preprocess.py --limit 50
-# 기대: data/processed/images/{train,val,test} 디렉터리 생성 확인
+# 기대: preprocessed_data/images/{train,val,test} 디렉터리 생성 확인
 
 # 4. 스모크 학습 (epochs=1)
 #    config.yaml 에서 train.epochs 를 1 로 임시 변경:
@@ -103,7 +103,7 @@ python src/evaluate.py
 # 기대: Recall / mAP@0.5 / mAP@0.5:0.95 수치 출력
 
 # 6. 단일 이미지 판정
-python src/pcb_inspect.py data/processed/images/test/<아무_이미지>.jpg
+python src/pcb_inspect.py preprocessed_data/images/test/<아무_이미지>.jpg
 # 기대: 판정(OK/NG/REVIEW) + 결함 목록 출력
 ```
 
@@ -117,7 +117,7 @@ python src/pcb_inspect.py data/processed/images/test/<아무_이미지>.jpg
 env: local   # → server 또는 colab 으로 변경하면 모든 경로 전환
 ```
 
-서버에서는 `raw_data` 가 읽기전용 공용 경로를 가리키므로 전처리 결과(processed/)는 반드시 `project_root` 아래에만 기록된다.
+서버에서는 `raw_data` 가 읽기전용 공용 경로를 가리키므로 전처리 결과(preprocessed_data/)는 반드시 `project_root` 아래에만 기록된다.
 
 ---
 

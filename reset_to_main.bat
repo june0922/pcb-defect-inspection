@@ -20,7 +20,7 @@ echo Resetting to the latest origin/main...
 git fetch origin
 git reset --hard origin/main
 :: 윈도우 파일 잠금으로 인한 y/n 무한 대기를 막기 위해 주요 폴더 먼저 강제 삭제 시도
-if exist data rmdir /s /q data 2>nul
+if exist preprocessed_data rmdir /s /q preprocessed_data 2>nul
 if exist dataset rmdir /s /q dataset 2>nul
 if exist runs rmdir /s /q runs 2>nul
 if exist weights rmdir /s /q weights 2>nul
