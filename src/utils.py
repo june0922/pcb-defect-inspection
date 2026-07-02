@@ -37,7 +37,12 @@ def get_paths(cfg: dict) -> dict[str, Path]:
     }
 
     # processed / weights / runs 는 필요 시 자동 생성 (raw_data 는 건드리지 않음)
+    # 심볼릭 링크가 존재하지만 대상이 사라진 경우(끊긴 링크) mkdir이 실패하므로 사전 제거
     for key in ("processed", "weights", "runs"):
-        paths[key].mkdir(parents=True, exist_ok=True)
+        p = paths[key]
+        if p.is_symlink() and not p.exists():
+            # 끊긴 심볼릭 링크 제거 (Drive 폴더가 삭제된 경우 등)
+            p.unlink()
+        p.mkdir(parents=True, exist_ok=True)
 
     return paths
