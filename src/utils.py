@@ -25,8 +25,8 @@ def get_paths(cfg: dict) -> dict[str, Path]:
     env = cfg["env"]
     env_paths = cfg["paths"][env]
 
-    raw_data = Path(env_paths["raw_data"])
-    project_root = Path(env_paths["project_root"])
+    raw_data = Path(env_paths["raw_data"]).resolve()
+    project_root = Path(env_paths["project_root"]).resolve()
 
     paths = {
         "raw_data": raw_data,
