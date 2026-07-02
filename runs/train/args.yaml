@@ -1,7 +1,7 @@
 task: detect
 mode: train
-model: C:\Users\compu\OneDrive\Desktop\mirroring\ati3_project\runs\train\weights\last.pt
-data: C:\Users\compu\AppData\Local\Temp\tmpw540vayv.yaml
+model: runs/train/weights/last.pt
+data: data.yaml
 epochs: 100
 time: null
 patience: 50
@@ -12,7 +12,7 @@ save_period: -1
 cache: false
 device: cpu
 workers: 4
-project: C:\Users\compu\OneDrive\Desktop\mirroring\ati3_project\runs
+project: runs
 name: train
 exist_ok: true
 pretrained: true
@@ -24,7 +24,7 @@ single_cls: false
 rect: false
 cos_lr: false
 close_mosaic: 10
-resume: C:\Users\compu\OneDrive\Desktop\mirroring\ati3_project\runs\train\weights\last.pt
+resume: runs/train/weights/last.pt
 amp: true
 fraction: 1.0
 profile: false
@@ -107,4 +107,4 @@ auto_augment: randaugment
 erasing: 0.4
 cfg: null
 tracker: botsort.yaml
-save_dir: C:\Users\compu\OneDrive\Desktop\mirroring\ati3_project\runs\train
+save_dir: runs/train
