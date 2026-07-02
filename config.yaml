@@ -7,7 +7,7 @@ judge:
   - 0.5
 paths:
   colab:
-    project_root: /content/pcb-project
+    project_root: /content/pcb-defect-inspection
     raw_data: dataset/PCBData
   local:
     project_root: .
