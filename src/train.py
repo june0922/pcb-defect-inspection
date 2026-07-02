@@ -34,7 +34,7 @@ def build_data_yaml(processed: Path, base_yaml: str = "data.yaml") -> Path:
     return tmp
 
 
-def main(config_path: str = "config.yaml") -> None:
+def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     from ultralytics import YOLO
 
     cfg = load_config(config_path)
@@ -43,7 +43,16 @@ def main(config_path: str = "config.yaml") -> None:
 
     data_yaml = build_data_yaml(paths["processed"])
 
-    model = YOLO(tc["model"])
+    # 이어학습(Resume)인 경우 last.pt 가중치 불러오기
+    if resume:
+        last_pt = paths["runs"] / "train" / "weights" / "last.pt"
+        if not last_pt.exists():
+            print(f"[Error] 이어학습을 할 수 없습니다. 마지막 체크포인트({last_pt})를 찾지 못했습니다.")
+            sys.exit(1)
+        print(f"[{last_pt}] 파일로부터 이어학습을 시작합니다...")
+        model = YOLO(str(last_pt))
+    else:
+        model = YOLO(tc["model"])
 
     # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW) 파라미터 추가
     # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v) 설정
@@ -57,6 +66,7 @@ def main(config_path: str = "config.yaml") -> None:
         project=str(paths["runs"]),
         name="train",
         exist_ok=True,
+        resume=resume,  # ultralytics 내부적으로도 resume 활성화
     )
 
     # best.pt 를 weights/ 로 복사
@@ -74,5 +84,6 @@ def main(config_path: str = "config.yaml") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", default="config.yaml")
+    parser.add_argument("--resume", action="store_true", help="Resume training from last.pt")
     args = parser.parse_args()
-    main(args.config)
+    main(args.config, args.resume)
