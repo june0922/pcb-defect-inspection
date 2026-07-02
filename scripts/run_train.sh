@@ -1,0 +1,56 @@
+#!/bin/bash
+# YOLOv8 Model Training Script
+
+# Change working directory to the project root
+cd "$(dirname "$0")/.." || exit
+
+echo "========================================================"
+echo "Current Directory: $PWD"
+echo "========================================================"
+echo ""
+
+read -p "Run preprocessing first? (Y/N, default is N): " run_pre
+if [[ "$run_pre" =~ ^[Yy]$ ]]; then
+    echo ""
+    echo "========================================================"
+    echo "Running Preprocessing..."
+    echo "========================================================"
+    python src/preprocess.py --config config.yaml
+fi
+
+echo ""
+echo "========================================================"
+echo "Current Configuration Parameters:"
+echo "========================================================"
+python scripts/show_config.py
+echo ""
+
+read -p "Proceed with training using these parameters? (Y/N, default is N): " run_train
+if [[ ! "$run_train" =~ ^[Yy]$ ]]; then
+    echo "Training cancelled by user."
+    exit 0
+fi
+
+echo ""
+
+TRAIN_CMD="python src/train.py --config config.yaml"
+if [ -f "runs/train/weights/last.pt" ]; then
+    echo "========================================================"
+    echo "[Notice] Found a previous training checkpoint (last.pt)."
+    echo "========================================================"
+    read -p "Do you want to resume training from this checkpoint? (Y/N, default is N): " do_resume
+    if [[ "$do_resume" =~ ^[Yy]$ ]]; then
+        TRAIN_CMD="python src/train.py --config config.yaml --resume"
+    fi
+    echo ""
+fi
+
+echo "========================================================"
+echo "Starting YOLOv8 Model Training..."
+echo "========================================================"
+$TRAIN_CMD
+
+echo ""
+echo "========================================================"
+echo "Training Execution Finished."
+echo "========================================================"

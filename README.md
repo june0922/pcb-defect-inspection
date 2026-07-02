@@ -68,8 +68,11 @@ python src/preprocess.py
 # 2. 학습 (단일 모델 테스트)
 python src/train.py
 
-# Windows 환경 통합 실행 스크립트 (전처리 선택 + 학습)
+# 통합 실행 스크립트 (설정 확인 + 전처리 선택 + 학습/이어학습)
+# Windows:
 scripts\run_train.bat
+# Linux/Mac:
+bash scripts/run_train.sh
 
 # 2-1. 교차 검증 (K-Fold 모델 앙상블 준비용)
 python src/train_kfold.py
