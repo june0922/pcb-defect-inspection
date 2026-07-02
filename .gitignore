@@ -2,8 +2,6 @@
 # 데이터 — raw 는 /shared 참조라 프로젝트에 없고, processed 만 preprocessed_data/ 에 생성
 preprocessed_data/
 dataset/
-dataset.zip
-*.zip
 
 # 학습 산출물
 runs/
