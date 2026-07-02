@@ -39,7 +39,7 @@ def print_metrics(metrics) -> None:
     map5095 = metrics.box.map if hasattr(metrics.box, "map") else float("nan")
 
     print("\n" + "=" * 50)
-    print(f"  ★ Recall (mean)     : {r:.4f}  ← recall 우선 지표")
+    print(f"  Recall (mean)     : {r:.4f}  ← recall 우선 지표")
     print(f"    mAP@0.5           : {map50:.4f}")
     print(f"    mAP@0.5:0.95      : {map5095:.4f}")
     print("=" * 50)

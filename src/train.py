@@ -2,6 +2,7 @@
 
 실행:
     python src/train.py [--config config.yaml]
+    (Windows 환경 통합 실행: scripts\run_train.bat)
 
 흐름:
     1. config 로드 → 경로 확인
