@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 >nul
 :: Change directory to the project root
 cd /d "%~dp0.."
 echo ========================================================
@@ -21,12 +22,11 @@ echo.
 echo Resetting to the latest origin/main...
 git fetch origin
 git reset --hard origin/main
-:: Force delete main directories to prevent y/n prompt freeze due to Windows file lock
+:: Force delete untracked large directories to prevent y/n prompt freeze due to Windows file lock
+:: NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch and restored by git reset above.
 if exist preprocessed_data rmdir /s /q preprocessed_data 2>nul
 if exist dataset rmdir /s /q dataset 2>nul
-if exist runs rmdir /s /q runs 2>nul
-if exist weights rmdir /s /q weights 2>nul
-:: Run git clean on remaining files and force ignore inputs
+:: Run git clean on remaining untracked/ignored files
 git clean -fdx < nul
 echo.
 echo Reset complete!
