@@ -31,9 +31,9 @@ train:
   workers: 4
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
 tune:
-  epochs: 30
+  epochs: 15        # 판별용 미니 학습 (수렴 불필요, 15로 충분)
   imgsz: 640
-  iterations: 30
+  iterations: 100   # GA 수렴 실무 권장값 (sigma 0.2→0.15 수렴)
   model: weights/yolov8n.pt
   workers: 4
 kfold:

@@ -69,14 +69,14 @@ def main(config_path: str = "config.yaml") -> None:
     model_path = PROJECT_ROOT / tc.get("model", "weights/yolov8n.pt")
     model = YOLO(str(model_path))
 
-    print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 10)}회)")
+    print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
 
     # 튜닝 실행
     results = model.tune(
         data=str(data_yaml),
-        epochs=tc.get("epochs", 30),
-        iterations=tc.get("iterations", 30),
+        epochs=tc.get("epochs", 15),
+        iterations=tc.get("iterations", 100),
         imgsz=tc.get("imgsz", 640),
         workers=tc.get("workers", 4),
         project=str(paths["runs"]),
