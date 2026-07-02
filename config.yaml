@@ -8,13 +8,13 @@ judge:
 paths:
   colab:
     project_root: /content/pcb-project
-    raw_data: /content/DeepPCB/PCBData
+    raw_data: dataset/PCBData
   local:
     project_root: .
     raw_data: dataset/PCBData
   server:
-    project_root: /home/team_a/pcb-project
-    raw_data: /shared/datasets/DeepPCB/PCBData
+    project_root: .
+    raw_data: dataset/PCBData
 preprocess:
   img_size: 640
 split:
