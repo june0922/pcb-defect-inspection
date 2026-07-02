@@ -20,7 +20,11 @@ if /i "%confirm%" neq "Y" (
 
 echo.
 echo Resetting to the latest origin/main...
-git fetch origin
+:: Pre-delete stale remote ref subdirectories to avoid Windows file-lock prompt during fetch
+for /d %%D in (".git\refs\remotes\origin\*") do (
+    if /i not "%%~nxD"=="HEAD" rmdir /s /q "%%D" 2>nul
+)
+git fetch origin --prune < nul
 git reset --hard origin/main
 :: Force delete untracked large directories to prevent y/n prompt freeze due to Windows file lock
 :: NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch and restored by git reset above.

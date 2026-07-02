@@ -19,7 +19,7 @@ fi
 
 echo ""
 echo "Resetting to the latest origin/main..."
-git fetch origin
+git fetch origin --prune
 git reset --hard origin/main
 
 # Force delete untracked large directories to prevent issues
