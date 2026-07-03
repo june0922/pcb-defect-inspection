@@ -56,15 +56,18 @@ def _load_src(name: str):
     spec.loader.exec_module(mod)
     return mod
 
+if str(WEB_DIR) not in sys.path:
+    sys.path.append(str(WEB_DIR))
+import visualize
+import pcb_inspect
+
 _utils_mod = _load_src("utils")
-_inspect_mod = _load_src("pcb_inspect")
-_visualize_mod = _load_src("visualize")
 
 load_config            = _utils_mod.load_config
-inspect_image          = _inspect_mod.inspect_image
-draw_inspection_result = _visualize_mod.draw_inspection_result
-extract_defects        = _inspect_mod.extract_defects
-judge                  = _inspect_mod.judge
+inspect_image          = pcb_inspect.inspect_image
+draw_inspection_result = visualize.draw_inspection_result
+extract_defects        = pcb_inspect.extract_defects
+judge                  = pcb_inspect.judge
 
 # ---------------------------------------------------------------------------
 # 전역 상태 — startup 시 딱 한 번 로드, 요청마다 재로드 금지
