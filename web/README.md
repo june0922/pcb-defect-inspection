@@ -23,7 +23,7 @@ pcb-project/
 ### 2. 샘플 이미지 및 보드 준비
 
 - **단일 검사 이미지**: `web/samples/` 에 시연용 단일 이미지 7장을 넣어두면 좌측 썸네일로 표시됩니다.
-- **가상 보드 이미지**: 전체 보드 검사 시연을 위해 가상 보드를 생성할 수 있습니다. 레포지토리 루트에서 아래 스크립트를 실행하면 `web/samples/boards/` 에 가상 보드가 생성됩니다.
+- **가상 보드 이미지**: 전체 보드 검사 시연을 위해 가상 보드를 생성할 수 있습니다. 레포지토리 루트에서 아래 스크립트를 실행하면 `web/samples/boards/` 에 가상 보드가 3종(`ok_board`, `ng_board`, `review_board`) 생성됩니다.
   ```bash
   python web/tools/build_demo_boards.py --raw-data /path/to/DeepPCB/PCBData --group group00041
   ```
@@ -55,10 +55,16 @@ uvicorn web.app:app --reload --port 8000
 
 ## 화면 구성 및 기능
 
-데모는 **단일 이미지 검사**와 **보드 격자 검사** 두 가지 모드를 지원합니다.
+데모는 **단일 이미지 검사**와 **보드 격자 검사** 두 가지 모드를 지원합니다. `config.yaml`의 `judge` 설정값(예: `conf_threshold`, `review_band`)에 따라 판정(Recall 우선)이 이루어집니다.
 
 ### 1. 단일 이미지 검사 (`/`)
 좌측에서 샘플 썸네일을 클릭하거나 직접 이미지를 업로드하면 결과를 즉시 확인합니다.
+- **판정 기준 (`web/pcb_inspect.py`)**:
+  - **OK** (초록): 발견된 결함이 0개이거나 노이즈 수준일 때
+  - **NG** (빨강): `conf_threshold` 이상 신뢰도의 확실한 결함이 존재할 때
+  - **REVIEW** (주황): `review_band` 구간의 애매한 결함만 존재하여 수동 검토가 필요할 때
+- **지원 결함 클래스**: open, short, mousebite, spur, copper, pinhole
+
 ```
 ┌──────────┬─────────────────────┬──────────────┐
 │ 검사 보드  │   주석 이미지          │  판정 결과    │
@@ -72,15 +78,11 @@ uvicorn web.app:app --reload --port 8000
 ```
 
 ### 2. 보드 단위 검사 (`/board`)
-`build_demo_boards.py`로 합성된 대형 PCB 보드를 격자로 분할하여 칸별로 검사하고, 보드 전체 판정을 종합하여 보여줍니다.
-- **판정 기준**:
-  - `NG` 칸이 하나라도 있으면 → 보드 `NG`
-  - `NG` 없고 `REVIEW` 칸이 있으면 → 보드 `REVIEW`
-  - 모든 칸이 `OK` → 보드 `OK`
-
-- **OK** = 초록, **NG** = 빨강, **REVIEW** = 주황 (수동 검토 필요)
-- 판정 로직은 `web/pcb_inspect.py` 에 구현되어 있습니다.
-- `config.yaml` 의 `judge.conf_threshold` / `judge.review_band` 가 기준값입니다.
+`build_demo_boards.py`로 합성된 대형 PCB 보드를 격자(예: 4×4)로 분할하여 칸별로 검사하고, 보드 전체 판정을 종합하여 보여줍니다.
+- **보드 전체 판정 기준 (`web/app.py`)**:
+  - 격자 중 `NG` 칸이 하나라도 있으면 → 보드 **NG**
+  - `NG` 칸은 없고 `REVIEW` 칸이 있으면 → 보드 **REVIEW**
+  - 모든 격자 칸이 `OK` → 보드 **OK**
 
 ---
 
@@ -112,7 +114,7 @@ web/
 │   ├── board.html      # 전체 보드 격자 검사 화면
 │   ├── style.css       # 공장 단말 스타일 (다크 테마)
 │   └── script.js       # 샘플 클릭·업로드·결과 렌더링
-├── samples/            # 시연용 이미지 (git 포함)
+├── samples/            # 시연용 단일 이미지 (git 포함)
 │   └── boards/         # 생성된 가상 보드 이미지 저장 경로
 └── README.md           # 이 파일
 ```
