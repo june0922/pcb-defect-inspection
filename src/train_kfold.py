@@ -10,6 +10,8 @@
 """
 
 import sys
+import os
+os.environ["TQDM_FORCE_TTY"] = "1"
 import shutil
 import argparse
 import tempfile
@@ -211,6 +213,11 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         else:
             model_path = PROJECT_ROOT / tc["model"]
             model = YOLO(str(model_path))
+
+        from utils import TotalETACallback
+        eta_callback = TotalETACallback()
+        model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+        model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
 
         results = model.train(
             data=str(data_yaml),
