@@ -11,6 +11,8 @@
 """
 
 import sys
+import os
+os.environ["TQDM_FORCE_TTY"] = "1"
 import shutil
 import argparse
 import tempfile
@@ -82,6 +84,11 @@ def main(config_path: str = "config.yaml") -> None:
     else:
         print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
+
+    from utils import TotalETACallback
+    eta_callback = TotalETACallback()
+    model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+    model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
 
     # 튜닝 실행
     # resume=True → Tuner 내부에서 exist_ok=True 로 전환되어 같은 runs/tune/ 디렉토리를 재사용하고

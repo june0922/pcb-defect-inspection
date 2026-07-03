@@ -46,3 +46,49 @@ def get_paths(cfg: dict) -> dict[str, Path]:
         p.mkdir(parents=True, exist_ok=True)
 
     return paths
+
+
+import time
+
+class TotalETACallback:
+    """학습 진행 속도와 전체 남은 시간(ETA)을 계산하여 YOLO progress bar에 표시하는 커스텀 콜백."""
+    def __init__(self):
+        self.start_time = None
+
+    def on_train_epoch_start(self, trainer):
+        if self.start_time is None:
+            self.start_time = time.time()
+        
+        # tqdm bar_format 에 postfix 필드가 없으면 추가
+        pbar = getattr(trainer, 'pbar', None)
+        if pbar is not None:
+            if '{postfix}' not in getattr(pbar, 'bar_format', ''):
+                pbar.bar_format = getattr(pbar, 'bar_format', '') + ' {postfix}'
+
+    def on_train_batch_end(self, trainer):
+        if self.start_time is None:
+            return
+            
+        epochs = getattr(trainer, 'epochs', 0)
+        epoch = getattr(trainer, 'epoch', 0)
+        
+        train_loader = getattr(trainer, 'train_loader', None)
+        if not train_loader: return
+        batches_per_epoch = len(train_loader)
+        batch_i = getattr(trainer, 'batch_i', 0)
+        
+        total_batches = epochs * batches_per_epoch
+        batches_done = epoch * batches_per_epoch + batch_i + 1
+        
+        elapsed = time.time() - self.start_time
+        if batches_done > 0:
+            speed = elapsed / batches_done  # seconds per batch
+            eta_seconds = (total_batches - batches_done) * speed
+            
+            m, s = divmod(int(eta_seconds), 60)
+            h, m = divmod(m, 60)
+            eta_str = f"[Total ETA: {h:02d}:{m:02d}:{s:02d} | {speed:.2f}s/it]"
+            
+            pbar = getattr(trainer, 'pbar', None)
+            if pbar is not None:
+                pbar.set_postfix_str(eta_str, refresh=True)

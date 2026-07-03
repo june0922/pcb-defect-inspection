@@ -12,6 +12,8 @@
 """
 
 import sys
+import os
+os.environ["TQDM_FORCE_TTY"] = "1"
 import shutil
 import argparse
 import tempfile
@@ -103,6 +105,11 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         model = YOLO(str(last_pt))
     else:
         model = YOLO(str(PROJECT_ROOT / tc["model"]))
+
+    from utils import TotalETACallback
+    eta_callback = TotalETACallback()
+    model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+    model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
 
     # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW) 파라미터 추가
     # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v) 설정
