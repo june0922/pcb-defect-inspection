@@ -173,6 +173,9 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     
     images_arr = np.array(images)
     
+    from utils import GlobalProgressCallback
+    eta_callback = GlobalProgressCallback(total_epochs_per_run=tc["epochs"], total_runs=k, run_type="Fold")
+    
     for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y)):
         fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
 
@@ -214,10 +217,10 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             model_path = PROJECT_ROOT / tc["model"]
             model = YOLO(str(model_path))
 
-        from utils import TotalETACallback
-        eta_callback = TotalETACallback()
-        model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+        model.add_callback("on_pretrain_routine_end", eta_callback.on_pretrain_routine_end)
         model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
+        model.add_callback("on_val_end", eta_callback.on_val_end)
+        model.add_callback("on_train_end", eta_callback.on_train_end)
 
         results = model.train(
             data=str(data_yaml),
@@ -231,6 +234,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             name=f"fold_{fold_num}",
             exist_ok=True,
             resume=fold_resume,                # ultralytics 내부 resume 활성화
+            verbose=False,
         )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)
