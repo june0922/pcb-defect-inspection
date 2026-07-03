@@ -52,14 +52,14 @@
 - **Verification:** After any training run or tool execution, run a full-project grep for personal path patterns (e.g., `C:\Users`, `/home/`, `AppData`, `Desktop`, `OneDrive`) before committing.
 
 
-# GitHub Pull Request Guidelines
-> **Trigger:** Apply these rules whenever the user requests pushing code to a new branch, creating a pull request, or uploading changes to GitHub.
+# Agent Instructions Synchronization Guidelines
+> **Trigger:** Apply these rules ONLY when modifying `AGENTS.md` or `CLAUDE.md`. No need to consult this section for other file types.
 
-- **No Autonomous Pushes:** NEVER push, commit to remote, or create branches on GitHub without an explicit user instruction. This applies to all branches including `main`. Code fixes and edits may be made locally, but must not be pushed until the user explicitly says so.
-- **Provide Korean Title and Description**: After pushing changes to a remote branch on GitHub, the agent MUST automatically generate and print a Pull Request (PR) Title and Detailed Description in Korean (한국어) in the final response.
-- **Code Block Requirement**: The ENTIRE PR title and description MUST be output inside a single markdown code block (using ```markdown ... ```) so the user can easily copy the whole template using the copy button.
-- **PR Description Template**: The Korean description should be well-structured and include:
-  - **제목 (Title)**: A concise Korean title prefixed with semantic versioning (e.g., `feat:`, `fix:`, `refactor:`).
-  - **개요 (Overview)**: Summary of the purpose of the PR.
-  - **주요 변경 사항 (Key Changes)**: Bullet points listing modified/created files and their descriptions.
-  - **테스트 및 검증 (Verification/Tests)**: How changes were tested or should be validated.
+- **Keep AGENTS.md and CLAUDE.md Consistent:** Any addition, modification, or deletion made to `AGENTS.md` MUST be exactly mirrored in `CLAUDE.md`, and vice versa. The purpose is to maintain identical instruction sets across different agent environments.
+- **Sync Scope:** Synchronize ALL of the following when modifying either file:
+  - New rules or guidelines added to any section.
+  - Modifications to existing rules, triggers, or path management logic.
+  - Deletions of outdated instructions.
+  - Formatting, headers, and bullet points.
+- **Commit Rule:** NEVER commit a change to `AGENTS.md` or `CLAUDE.md` without updating its counterpart in the same commit. A single commit must contain both files if either is changed.
+- **Verification:** After editing, compare both files side-by-side to confirm their contents remain 100% identical.
