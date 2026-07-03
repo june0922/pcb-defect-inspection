@@ -104,7 +104,9 @@ def main(config_path: str = "config.yaml") -> None:
         epochs=tc.get("epochs", 15),
         iterations=tc.get("iterations", 100),
         imgsz=tc.get("imgsz", 640),
+        batch=tc.get("batch", -1),
         workers=tc.get("workers", 4),
+        cache=tc.get("cache", False),
         project=str(paths["runs"]),
         name="tune",
         resume=should_resume,   # exist_ok=True 대신 resume 을 정확히 사용

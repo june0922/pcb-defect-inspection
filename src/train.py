@@ -120,6 +120,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         batch=tc["batch"],
         imgsz=tc["imgsz"],
         workers=tc.get("workers", 4),
+        cache=tc.get("cache", False),
         patience=tc.get("patience", 50),  # TODO(찾기): 조기 종료 patience
         device=device,                    # GPU(0) 또는 CPU 명시
         project=str(paths["runs"]),
