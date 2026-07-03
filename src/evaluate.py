@@ -52,7 +52,7 @@ def build_data_yaml(processed: Path, base_yaml: Path | None = None) -> Path:
 def print_metrics(metrics) -> None:
     """주요 메트릭 출력. recall 을 가장 먼저 강조."""
     # ultralytics DetMetrics 구조 참고
-    r = metrics.box.r.mean() if hasattr(metrics.box, "r") else float("nan")
+    r = metrics.box.mr if hasattr(metrics.box, "mr") else float("nan")
     map50 = metrics.box.map50 if hasattr(metrics.box, "map50") else float("nan")
     map5095 = metrics.box.map if hasattr(metrics.box, "map") else float("nan")
 

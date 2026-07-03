@@ -18,6 +18,7 @@ import argparse
 import shutil
 from pathlib import Path
 
+import cv2
 import numpy as np
 from sklearn.model_selection import train_test_split
 
@@ -136,7 +137,6 @@ def save_yolo_format(
         shutil.copy2(img_path, img_out / img_path.name)
 
         # 이미지 크기를 파일명에서 읽지 않고 실제로 확인
-        import cv2
         img = cv2.imread(str(img_path))
         if img is None:
             print(f"[warn] 이미지 로드 실패: {img_path}")
