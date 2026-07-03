@@ -30,7 +30,7 @@ train:
   patience: 15
   workers: 2
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
-  cache: True
+  cache: disk
 tune:
   batch: -1
   epochs: 150
@@ -38,7 +38,7 @@ tune:
   iterations: 20
   model: weights/yolov8n.pt
   workers: 2
-  cache: True
+  cache: disk
 kfold:
   k: 5
   random_state: 42
