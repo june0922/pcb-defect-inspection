@@ -106,11 +106,12 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     else:
         model = YOLO(str(PROJECT_ROOT / tc["model"]))
 
-    from utils import TotalETACallback
-    eta_callback = TotalETACallback()
-    model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+    from utils import GlobalProgressCallback
+    eta_callback = GlobalProgressCallback(total_epochs_per_run=tc["epochs"], total_runs=1, run_type="Train")
+    model.add_callback("on_pretrain_routine_end", eta_callback.on_pretrain_routine_end)
     model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
-
+    model.add_callback("on_val_end", eta_callback.on_val_end)
+    model.add_callback("on_train_end", eta_callback.on_train_end)
     # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW) 파라미터 추가
     # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v) 설정
     results = model.train(
@@ -125,6 +126,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         name="train",
         exist_ok=True,
         resume=resume,  # ultralytics 내부적으로도 resume 활성화
+        verbose=False,
     )
 
     # best.pt 를 weights/ 로 복사

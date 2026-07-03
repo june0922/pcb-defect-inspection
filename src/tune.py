@@ -85,10 +85,16 @@ def main(config_path: str = "config.yaml") -> None:
         print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
 
-    from utils import TotalETACallback
-    eta_callback = TotalETACallback()
-    model.add_callback("on_train_epoch_start", eta_callback.on_train_epoch_start)
+    from utils import GlobalProgressCallback
+    eta_callback = GlobalProgressCallback(
+        total_epochs_per_run=tc.get("epochs", 15),
+        total_runs=tc.get("iterations", 100),
+        run_type="Tune"
+    )
+    model.add_callback("on_pretrain_routine_end", eta_callback.on_pretrain_routine_end)
     model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
+    model.add_callback("on_val_end", eta_callback.on_val_end)
+    model.add_callback("on_train_end", eta_callback.on_train_end)
 
     # 튜닝 실행
     # resume=True → Tuner 내부에서 exist_ok=True 로 전환되어 같은 runs/tune/ 디렉토리를 재사용하고
@@ -103,6 +109,7 @@ def main(config_path: str = "config.yaml") -> None:
         name="tune",
         resume=should_resume,   # exist_ok=True 대신 resume 을 정확히 사용
         use_ray=False,           # Ultralytics 기본 내장 GA 튜너 사용
+        verbose=False,
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")
