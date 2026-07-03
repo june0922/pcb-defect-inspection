@@ -23,21 +23,21 @@ split:
   train: 0.7
   val: 0.2
 train:
-  batch: -1
+  batch: 128
   epochs: 150
   imgsz: 640
   model: weights/yolov8n.pt
   patience: 15
-  workers: 2
+  workers: 4
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: disk
 tune:
-  batch: -1
+  batch: 128
   epochs: 150
   imgsz: 640
   iterations: 20
   model: weights/yolov8n.pt
-  workers: 2
+  workers: 4
   cache: disk
 kfold:
   k: 5
