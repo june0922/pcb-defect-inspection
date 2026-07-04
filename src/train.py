@@ -112,8 +112,6 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)
     model.add_callback("on_val_end", eta_callback.on_val_end)
     model.add_callback("on_train_end", eta_callback.on_train_end)
-    # TODO(찾기): lr0, lrf, optimizer (SGD/Adam/AdamW) 파라미터 추가
-    # TODO(찾기): augmentation (mosaic, flipud, fliplr, hsv_h/s/v) 설정
     results = model.train(
         data=str(data_yaml),
         epochs=tc["epochs"],
@@ -121,13 +119,20 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         imgsz=tc["imgsz"],
         workers=tc.get("workers", 4),
         cache=tc.get("cache", False),
-        patience=tc.get("patience", 50),  # TODO(찾기): 조기 종료 patience
-        device=device,                    # GPU(0) 또는 CPU 명시
+        patience=tc.get("patience", 50),
+        device=device,
         project=str(paths["runs"]),
         name="train",
         exist_ok=True,
-        resume=resume,  # ultralytics 내부적으로도 resume 활성화
+        resume=resume,
         verbose=False,
+        optimizer=tc.get("optimizer", "auto"),
+        cos_lr=tc.get("cos_lr", False),
+        flipud=tc.get("flipud", 0.0),
+        fliplr=tc.get("fliplr", 0.5),
+        mosaic=tc.get("mosaic", 1.0),
+        box=tc.get("box", 7.5),
+        cls=tc.get("cls", 0.5),
     )
 
     # best.pt 를 weights/ 로 복사

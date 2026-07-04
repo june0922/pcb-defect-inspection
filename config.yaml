@@ -31,6 +31,13 @@ train:
   workers: 4
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: disk
+  optimizer: AdamW
+  cos_lr: true
+  flipud: 0.5
+  fliplr: 0.5
+  mosaic: 1.0
+  box: 7.5
+  cls: 1.0
 tune:
   batch: -1
   epochs: 150
@@ -39,6 +46,13 @@ tune:
   model: weights/yolov8n.pt
   workers: 4
   cache: disk
+  optimizer: AdamW
+  cos_lr: true
+  flipud: 0.5
+  fliplr: 0.5
+  mosaic: 1.0
+  box: 7.5
+  cls: 1.0
 kfold:
   k: 5
   random_state: 42
