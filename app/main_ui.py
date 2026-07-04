@@ -162,15 +162,15 @@ class MainWindow(QMainWindow):
         self._status_label.setText("Ready. File > Open Folder... to start.")
 
     def _load_settings(self):
-        default_settings = {"min_conf": 50, "max_conf": 100, "iou_thresh": 0.45}
+        default_settings = {"min_conf": 40, "max_conf": 90, "iou_thresh": 0.45}
         if self._settings_file.exists():
             try:
                 with open(self._settings_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
                     merged = {**default_settings, **settings}
                     return {
-                        "min_conf": int(merged.get("min_conf", 50)),
-                        "max_conf": int(merged.get("max_conf", 100)),
+                        "min_conf": int(merged.get("min_conf", 40)),
+                        "max_conf": int(merged.get("max_conf", 90)),
                         "iou_thresh": round(float(merged.get("iou_thresh", 0.45)), 2)
                     }
             except Exception:
