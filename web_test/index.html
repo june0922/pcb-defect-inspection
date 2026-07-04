@@ -17,52 +17,52 @@
         <!-- Baseline Panel (Left) -->
         <section class="panel left-panel">
             <div class="panel-header">
-                <h2 data-tooltip="PCB 불량(Open, Short 등) 데이터셋으로 파인튜닝되어&#10;가장 높은 단일 성능을 기록한 최적의 가중치(best.pt) 모델입니다.">Baseline (best.pt)</h2>
+                <h2 data-tooltip="튜닝 이전 하이퍼파라미터로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">No-Tune Ensemble (5-Folds)</h2>
             </div>
             
-            <div class="metrics-card" id="baseline-metrics">
+            <div class="metrics-card" id="notune-metrics">
                 <div class="metric-item highlight">
                     <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
-                    <span class="value" id="base-recall">-</span>
+                    <span class="value" id="notune-recall">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
-                    <span class="value" id="base-map50">-</span>
+                    <span class="value" id="notune-map50">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
-                    <span class="value" id="base-map5095">-</span>
+                    <span class="value" id="notune-map5095">-</span>
                 </div>
             </div>
 
             <div class="image-wrapper">
-                <img id="base-img" src="" alt="Baseline Image" />
+                <img id="notune-img" src="" alt="No-Tune Image" />
             </div>
         </section>
 
         <!-- Ensemble Panel (Right) -->
         <section class="panel right-panel">
             <div class="panel-header">
-                <h2 data-tooltip="WBF(Weighted Boxes Fusion) 알고리즘을 사용하여&#10;5개의 K-Fold 모델 예측 결과를 융합한 최종 앙상블 결과입니다.&#10;오탐지를 줄이고 바운딩 박스 정밀도가 매우 높습니다.">WBF Ensemble (5-Folds)</h2>
+                <h2 data-tooltip="튜닝 이후 하이퍼파라미터로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">Yes-Tune Ensemble (5-Folds)</h2>
             </div>
             
-            <div class="metrics-card" id="ensemble-metrics">
+            <div class="metrics-card" id="yestune-metrics">
                 <div class="metric-item highlight">
                     <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
-                    <span class="value" id="ens-recall">-</span>
+                    <span class="value" id="yestune-recall">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
-                    <span class="value" id="ens-map50">-</span>
+                    <span class="value" id="yestune-map50">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
-                    <span class="value" id="ens-map5095">-</span>
+                    <span class="value" id="yestune-map5095">-</span>
                 </div>
             </div>
 
             <div class="image-wrapper">
-                <img id="ens-img" src="" alt="Final Model Image" />
+                <img id="yestune-img" src="" alt="Yes-Tune Image" />
             </div>
         </section>
     </main>

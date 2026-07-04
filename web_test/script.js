@@ -5,18 +5,18 @@ let playInterval = null;
 let currentSpeed = 1; // 1x = 1000ms
 
 const DOM = {
-    baseImg: document.getElementById('base-img'),
-    ensImg: document.getElementById('ens-img'),
+    notuneImg: document.getElementById('notune-img'),
+    yestuneImg: document.getElementById('yestune-img'),
     filename: document.getElementById('filename-display'),
     progressInfo: document.getElementById('progress-info'),
     
     // Metrics
-    baseRecall: document.getElementById('base-recall'),
-    baseMap50: document.getElementById('base-map50'),
-    baseMap5095: document.getElementById('base-map5095'),
-    ensRecall: document.getElementById('ens-recall'),
-    ensMap50: document.getElementById('ens-map50'),
-    ensMap5095: document.getElementById('ens-map5095'),
+    notuneRecall: document.getElementById('notune-recall'),
+    notuneMap50: document.getElementById('notune-map50'),
+    notuneMap5095: document.getElementById('notune-map5095'),
+    yestuneRecall: document.getElementById('yestune-recall'),
+    yestuneMap50: document.getElementById('yestune-map50'),
+    yestuneMap5095: document.getElementById('yestune-map5095'),
     
     // Controls
     btnPrev: document.getElementById('btn-prev'),
@@ -49,13 +49,13 @@ function loadData() {
 function updateMetrics(m) {
     const format = val => (val * 100).toFixed(2) + '%';
     
-    DOM.baseRecall.textContent = format(m.baseline.recall);
-    DOM.baseMap50.textContent = format(m.baseline.map50);
-    DOM.baseMap5095.textContent = format(m.baseline.map50_95);
+    DOM.notuneRecall.textContent = format(m.notune.recall);
+    DOM.notuneMap50.textContent = format(m.notune.map50);
+    DOM.notuneMap5095.textContent = format(m.notune.map50_95);
     
-    DOM.ensRecall.textContent = format(m.ensemble.recall);
-    DOM.ensMap50.textContent = format(m.ensemble.map50);
-    DOM.ensMap5095.textContent = format(m.ensemble.map50_95);
+    DOM.yestuneRecall.textContent = format(m.yestune.recall);
+    DOM.yestuneMap50.textContent = format(m.yestune.map50);
+    DOM.yestuneMap5095.textContent = format(m.yestune.map50_95);
 }
 
 function updateView() {
@@ -66,8 +66,8 @@ function updateView() {
     DOM.progressInfo.textContent = `Image: ${currentIndex + 1} / ${images.length}`;
     
     // Force image reload cleanly to avoid flickering if possible
-    DOM.baseImg.src = `results/baseline/${imgName}`;
-    DOM.ensImg.src = `results/ensemble/${imgName}`;
+    DOM.notuneImg.src = `results/notune/${imgName}`;
+    DOM.yestuneImg.src = `results/yestune/${imgName}`;
 }
 
 // Navigation

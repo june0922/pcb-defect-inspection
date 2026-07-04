@@ -1,7 +1,7 @@
 """웹 뷰어를 위한 모델 추론 결과 생성 스크립트.
 
-기본 모델(best.pt)과 앙상블 모델(best_fold_1~5.pt WBF 앙상블)의 
-test 세트(150장) 추론 결과를 이미지로 저장하고,
+튜닝 이전 모델(K-Fold 5개 WBF 앙상블)과 튜닝 이후 모델(K-Fold 5개 WBF 앙상블)의 
+test 세트 추론 결과를 이미지로 저장하고,
 torchmetrics를 통해 mAP를 직접 계산하여 
 웹 UI에서 사용할 메타데이터(data.js)를 생성합니다.
 """
@@ -55,6 +55,37 @@ def draw_boxes(img, boxes, scores, labels, class_names):
         cv2.putText(img, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
     return img
 
+def run_wbf(models, img_path, conf_thres, iou_thres, img_w, img_h, class_names):
+    all_boxes_norm = []
+    all_scores = []
+    all_labels = []
+    
+    for m in models:
+        res = m.predict(img_path, conf=conf_thres, iou=iou_thres, verbose=False)[0]
+        if len(res.boxes) > 0:
+            boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
+            scores = res.boxes.conf.cpu().numpy().tolist()
+            labels = res.boxes.cls.cpu().numpy().astype(int).tolist()
+            all_boxes_norm.append(boxes_norm)
+            all_scores.append(scores)
+            all_labels.append(labels)
+        else:
+            all_boxes_norm.append([])
+            all_scores.append([])
+            all_labels.append([])
+            
+    if any(len(b) > 0 for b in all_boxes_norm):
+        boxes_wbf, scores_wbf, labels_wbf = weighted_boxes_fusion(
+            all_boxes_norm, all_scores, all_labels, weights=None, iou_thr=iou_thres, skip_box_thr=conf_thres
+        )
+    else:
+        boxes_wbf, scores_wbf, labels_wbf = [], [], []
+        
+    boxes_abs = [norm2xyxy(x1, y1, x2, y2, img_w, img_h) for x1, y1, x2, y2 in boxes_wbf]
+    labels_out = [int(l) for l in labels_wbf]
+    
+    return boxes_abs, scores_wbf, labels_out
+
 def generate_predictions():
     cfg = load_config(str(PROJECT_ROOT / "config.yaml"))
     paths = get_paths(cfg)
@@ -71,25 +102,30 @@ def generate_predictions():
 
     web_dir = PROJECT_ROOT / "web_test"
     results_dir = web_dir / "results"
-    base_dir = results_dir / "baseline"
-    ens_dir = results_dir / "ensemble"
+    notune_dir = results_dir / "notune"
+    yestune_dir = results_dir / "yestune"
     
-    for d in [base_dir, ens_dir]:
+    for d in [notune_dir, yestune_dir]:
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True, exist_ok=True)
 
     print("\n[INFO] 모델 로딩 중...")
-    base_model = YOLO(str(PROJECT_ROOT / "weights" / "best.pt"))
-    class_names = base_model.names
     
-    ens_models = []
+    notune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
-        ens_models.append(YOLO(str(m_path)))
+        m_path = PROJECT_ROOT / "weights" / "notune" / "v8n_notune_721_5kfold_150epoch" / "weights" / f"best_fold_{i}.pt"
+        notune_models.append(YOLO(str(m_path)))
 
-    metric_base = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
-    metric_ens = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
+    yestune_models = []
+    for i in range(1, 6):
+        m_path = PROJECT_ROOT / "weights" / "yestune" / "weights" / f"best_fold_{i}.pt"
+        yestune_models.append(YOLO(str(m_path)))
+        
+    class_names = notune_models[0].names
+
+    metric_notune = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
+    metric_yestune = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
     
     conf_thres = cfg["judge"]["conf_threshold"]
     iou_thres = cfg["judge"]["iou_threshold"]
@@ -108,87 +144,60 @@ def generate_predictions():
             labels=torch.tensor(gt_labels, dtype=torch.int64) if gt_labels else torch.empty((0,), dtype=torch.int64)
         )]
         
-        res_base = base_model.predict(img_path, conf=conf_thres, iou=iou_thres, verbose=False)[0]
-        b_boxes_abs = res_base.boxes.xyxy.cpu().numpy()
-        b_scores = res_base.boxes.conf.cpu().numpy()
-        b_labels = res_base.boxes.cls.cpu().numpy().astype(int)
+        # No-Tune Inference
+        n_boxes_abs, n_scores, n_labels = run_wbf(notune_models, img_path, conf_thres, iou_thres, img_w, img_h, class_names)
         
-        img_base = draw_boxes(img.copy(), b_boxes_abs, b_scores, b_labels, class_names)
-        cv2.imwrite(str(base_dir / img_name), img_base)
+        img_notune = draw_boxes(img.copy(), n_boxes_abs, n_scores, n_labels, class_names)
+        cv2.imwrite(str(notune_dir / img_name), img_notune)
         
-        pred_base = [dict(
-            boxes=torch.tensor(b_boxes_abs, dtype=torch.float32) if len(b_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
-            scores=torch.tensor(b_scores, dtype=torch.float32) if len(b_scores) else torch.empty((0,), dtype=torch.float32),
-            labels=torch.tensor(b_labels, dtype=torch.int64) if len(b_labels) else torch.empty((0,), dtype=torch.int64)
+        pred_notune = [dict(
+            boxes=torch.tensor(n_boxes_abs, dtype=torch.float32) if len(n_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
+            scores=torch.tensor(n_scores, dtype=torch.float32) if len(n_scores) else torch.empty((0,), dtype=torch.float32),
+            labels=torch.tensor(n_labels, dtype=torch.int64) if len(n_labels) else torch.empty((0,), dtype=torch.int64)
         )]
-        metric_base.update(pred_base, target)
+        metric_notune.update(pred_notune, target)
         
-        all_boxes_norm = []
-        all_scores = []
-        all_labels = []
+        # Yes-Tune Inference
+        y_boxes_abs, y_scores, y_labels = run_wbf(yestune_models, img_path, conf_thres, iou_thres, img_w, img_h, class_names)
         
-        for m in ens_models:
-            res = m.predict(img_path, conf=conf_thres, iou=iou_thres, verbose=False)[0]
-            if len(res.boxes) > 0:
-                boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
-                scores = res.boxes.conf.cpu().numpy().tolist()
-                labels = res.boxes.cls.cpu().numpy().astype(int).tolist()
-                all_boxes_norm.append(boxes_norm)
-                all_scores.append(scores)
-                all_labels.append(labels)
-            else:
-                all_boxes_norm.append([])
-                all_scores.append([])
-                all_labels.append([])
-                
-        if any(len(b) > 0 for b in all_boxes_norm):
-            boxes_wbf, scores_wbf, labels_wbf = weighted_boxes_fusion(
-                all_boxes_norm, all_scores, all_labels, weights=None, iou_thr=iou_thres, skip_box_thr=conf_thres
-            )
-        else:
-            boxes_wbf, scores_wbf, labels_wbf = [], [], []
-            
-        e_boxes_abs = [norm2xyxy(x1, y1, x2, y2, img_w, img_h) for x1, y1, x2, y2 in boxes_wbf]
-        e_labels = [int(l) for l in labels_wbf]
+        img_yestune = draw_boxes(img.copy(), y_boxes_abs, y_scores, y_labels, class_names)
+        cv2.imwrite(str(yestune_dir / img_name), img_yestune)
         
-        img_ens = draw_boxes(img.copy(), e_boxes_abs, scores_wbf, e_labels, class_names)
-        cv2.imwrite(str(ens_dir / img_name), img_ens)
-        
-        pred_ens = [dict(
-            boxes=torch.tensor(e_boxes_abs, dtype=torch.float32) if len(e_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
-            scores=torch.tensor(scores_wbf, dtype=torch.float32) if len(scores_wbf) else torch.empty((0,), dtype=torch.float32),
-            labels=torch.tensor(e_labels, dtype=torch.int64) if len(e_labels) else torch.empty((0,), dtype=torch.int64)
+        pred_yestune = [dict(
+            boxes=torch.tensor(y_boxes_abs, dtype=torch.float32) if len(y_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
+            scores=torch.tensor(y_scores, dtype=torch.float32) if len(y_scores) else torch.empty((0,), dtype=torch.float32),
+            labels=torch.tensor(y_labels, dtype=torch.int64) if len(y_labels) else torch.empty((0,), dtype=torch.int64)
         )]
-        metric_ens.update(pred_ens, target)
+        metric_yestune.update(pred_yestune, target)
 
     print("\n[INFO] 평가지표(mAP) 계산 중... (수 분이 소요될 수 있습니다)")
-    base_res = metric_base.compute()
-    ens_res = metric_ens.compute()
+    notune_res = metric_notune.compute()
+    yestune_res = metric_yestune.compute()
     
     def m(val): return float(val.item()) if hasattr(val, 'item') else float(val)
     
-    print("\n=== Baseline (best.pt) ===")
-    print(f"Recall:    {m(base_res['mar_100']):.4f}")
-    print(f"mAP@0.5:   {m(base_res['map_50']):.4f}")
-    print(f"mAP@50-95: {m(base_res['map']):.4f}")
+    print("\n=== No-Tune Ensemble (WBF) ===")
+    print(f"Recall:    {m(notune_res['mar_100']):.4f}")
+    print(f"mAP@0.5:   {m(notune_res['map_50']):.4f}")
+    print(f"mAP@50-95: {m(notune_res['map']):.4f}")
     
-    print("\n=== Ensemble (WBF) ===")
-    print(f"Recall:    {m(ens_res['mar_100']):.4f}")
-    print(f"mAP@0.5:   {m(ens_res['map_50']):.4f}")
-    print(f"mAP@50-95: {m(ens_res['map']):.4f}")
+    print("\n=== Yes-Tune Ensemble (WBF) ===")
+    print(f"Recall:    {m(yestune_res['mar_100']):.4f}")
+    print(f"mAP@0.5:   {m(yestune_res['map_50']):.4f}")
+    print(f"mAP@50-95: {m(yestune_res['map']):.4f}")
 
     results_data = {
         "images": image_files,
         "metrics": {
-            "baseline": {
-                "recall": m(base_res['mar_100']),
-                "map50": m(base_res['map_50']),
-                "map50_95": m(base_res['map'])
+            "notune": {
+                "recall": m(notune_res['mar_100']),
+                "map50": m(notune_res['map_50']),
+                "map50_95": m(notune_res['map'])
             },
-            "ensemble": {
-                "recall": m(ens_res['mar_100']),
-                "map50": m(ens_res['map_50']),
-                "map50_95": m(ens_res['map'])
+            "yestune": {
+                "recall": m(yestune_res['mar_100']),
+                "map50": m(yestune_res['map_50']),
+                "map50_95": m(yestune_res['map'])
             }
         }
     }
