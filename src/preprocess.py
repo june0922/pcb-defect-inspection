@@ -151,16 +151,15 @@ def save_yolo_format(
     print(f"[save] {split_name}: {len(pairs)} 샘플 → {img_out}")
 
 
-def prepare_dataset(project_root: Path) -> Path | None:
+def prepare_dataset(project_root: Path, expected_raw_dir: Path) -> Path | None:
     """dataset.zip 파일이 있으면 압축을 풀고 해당 경로를 반환합니다.
     이미 풀려있으면 압축 해제를 건너뜁니다.
     """
     zip_path = project_root / "dataset.zip"
-    raw_data_dir = project_root / "dataset" / "PCBData"
 
-    if raw_data_dir.exists():
-        print(f"[prepare_dataset] 이미 데이터셋이 압축 해제되어 있습니다: {raw_data_dir}")
-        return raw_data_dir
+    if expected_raw_dir.exists():
+        print(f"[prepare_dataset] 이미 데이터셋이 압축 해제되어 있습니다: {expected_raw_dir}")
+        return expected_raw_dir
 
     if not zip_path.exists():
         return None
@@ -171,11 +170,11 @@ def prepare_dataset(project_root: Path) -> Path | None:
         # zip 파일 내부에 이미 dataset 폴더가 최상위에 있으므로 project_root에 해제
         zip_ref.extractall(project_root)
         
-    if raw_data_dir.exists():
-        print(f"[prepare_dataset] 압축 해제 완료: {raw_data_dir}")
-        return raw_data_dir
+    if expected_raw_dir.exists():
+        print(f"[prepare_dataset] 압축 해제 완료: {expected_raw_dir}")
+        return expected_raw_dir
     else:
-        print("[prepare_dataset] 압축 해제 완료했으나 PCBData를 찾을 수 없습니다.")
+        print(f"[prepare_dataset] 압축 해제 완료했으나 예상 경로({expected_raw_dir})를 찾을 수 없습니다.")
         return project_root / "dataset"
 
 
@@ -187,7 +186,7 @@ def main(config_path: str = "config.yaml", limit: int | None = None) -> None:
     
     # 압축 해제 로직 추가 (기존 경로 덮어쓰기)
     project_root = paths.get("project_root", Path("."))
-    extracted_path = prepare_dataset(project_root)
+    extracted_path = prepare_dataset(project_root, raw_data_path)
     if extracted_path and extracted_path.exists():
         raw_data_path = extracted_path
 
