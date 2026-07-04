@@ -157,9 +157,8 @@ class MainWindow(QMainWindow):
         self._init_menu()
         self._connect_signals()
 
-        # 시작 시 폴더 선택 다이얼로그
-        QApplication.processEvents()
-        self._select_folder_and_start()
+        # 시작 시 빈 창으로 대기 (사용자가 직접 File > Open Folder 메뉴 이용)
+        self._status_label.setText("Ready. File > Open Folder... to start.")
 
     def _load_settings(self):
         default_settings = {"min_conf": 50, "max_conf": 100, "iou_thresh": 0.45}
@@ -417,10 +416,10 @@ class MainWindow(QMainWindow):
             wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
             weight_paths.append(str(wp))
 
-        # UI에서 설정된 임계값 읽기
-        min_conf = self._min_conf_spin.value() / 100.0
-        max_conf = self._max_conf_spin.value() / 100.0
-        iou_thresh = self._iou_spin.value()
+        # 설정된 임계값 읽기
+        min_conf = self._app_settings.get("min_conf", 50) / 100.0
+        max_conf = self._app_settings.get("max_conf", 100) / 100.0
+        iou_thresh = self._app_settings.get("iou_thresh", 0.45)
 
         # GPU/CPU 자동 판별
         try:
