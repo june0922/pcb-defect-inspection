@@ -38,8 +38,10 @@ train:
   flipud: 0.5
   fliplr: 0.5
   mosaic: 1.0
-  box: 7.5
+  box: 10.0
   cls: 1.0
+  dfl: 2.0
+  rect: true
 tune:
   batch: -1
   epochs: 150

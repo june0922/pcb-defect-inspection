@@ -119,8 +119,10 @@ def main(config_path: str = "config.yaml") -> None:
         flipud=tc.get("flipud", 0.0),
         fliplr=tc.get("fliplr", 0.5),
         mosaic=tc.get("mosaic", 1.0),
-        box=tc.get("box", 7.5),
+        box=tc.get("box", 10.0),
         cls=tc.get("cls", 0.5),
+        dfl=tc.get("dfl", 2.0),
+        rect=tc.get("rect", True),
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")

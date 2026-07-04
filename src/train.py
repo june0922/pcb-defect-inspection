@@ -133,8 +133,10 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         flipud=tc.get("flipud", 0.0),
         fliplr=tc.get("fliplr", 0.5),
         mosaic=tc.get("mosaic", 1.0),
-        box=tc.get("box", 7.5),
+        box=tc.get("box", 10.0),
         cls=tc.get("cls", 0.5),
+        dfl=tc.get("dfl", 2.0),
+        rect=tc.get("rect", True),
     )
 
     # best.pt 를 weights/ 로 복사
