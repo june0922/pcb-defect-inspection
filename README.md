@@ -56,7 +56,7 @@ ati3_project/
 │   ├── reset_to_main.bat / .sh  # main 브랜치 완전 리셋
 │   └── show_config.py       # config.yaml 테이블 출력
 │
-├── web/                     # FastAPI 웹 데모
+├── web_hwang/                     # FastAPI 웹 데모
 │   ├── app.py               # 서버 (단일 이미지 + 보드 격자 검사 API)
 │   ├── static/              # 프론트엔드 (HTML / CSS / JS)
 │   │   ├── index.html       # 단일 이미지 검사 페이지
@@ -108,7 +108,7 @@ ati3_project/
          │
          ├── src/pcb_inspect.py  →  단일 이미지 OK/NG/REVIEW 판정
          │
-         └── web/app.py  →  웹 데모 (단일 이미지 + 보드 격자 검사)
+         └── web_hwang/app.py  →  웹 데모 (단일 이미지 + 보드 격자 검사)
 ```
 
 ---
@@ -640,7 +640,7 @@ result = inspect_image("sample.jpg", model, cfg)
 pip install -r requirements.txt
 
 # 서버 시작 (프로젝트 루트에서)
-uvicorn web.app:app --reload --port 8000
+uvicorn web_hwang.app:app --reload --port 8000
 ```
 
 접속 주소:
@@ -651,7 +651,7 @@ uvicorn web.app:app --reload --port 8000
 
 서버 시작 시 `lifespan` 이벤트에서 다음을 수행합니다:
 1. `config.yaml` 로드
-2. 모델 탐색: `web/best.pt` → `weights/best.pt` → fallback `yolov8n.pt`
+2. 모델 탐색: `web_hwang/best.pt` → `weights/best.pt` → fallback `yolov8n.pt`
 3. YOLO 모델 로드 + 더미 이미지 워밍업 (첫 요청 지연 방지)
 
 ### API 엔드포인트
@@ -710,13 +710,13 @@ DeepPCB 640×640 이미지를 4×4 격자로 합성한 **데모용 가상 보드
 ### 가상 보드 생성
 
 ```bash
-python web/tools/build_demo_boards.py \
+python web_hwang/tools/build_demo_boards.py \
   --raw-data dataset/PCBData \
   --group group00041 \
   --rows 4 --cols 4
 ```
 
-생성 결과: `web/samples/boards/{ok,ng,review}_board.{jpg,_map.json}`
+생성 결과: `web_hwang/samples/boards/{ok,ng,review}_board.{jpg,_map.json}`
 
 > ※ 가상 보드는 데모 전용 합성 이미지입니다. DeepPCB 원본에는 2D 위치 정보가 없어 실제 보드 복원이 아닙니다.
 
@@ -795,7 +795,7 @@ python src/evaluate.py
 python src/pcb_inspect.py preprocessed_data/images/test/<이미지>.jpg
 
 # 5. 웹 데모 실행
-uvicorn web.app:app --reload --port 8000
+uvicorn web_hwang.app:app --reload --port 8000
 ```
 
 ### 통합 학습 스크립트 (대화형)
@@ -837,7 +837,7 @@ python src/pcb_inspect.py preprocessed_data/images/test/<아무_이미지>.jpg
 # 기대: 판정(OK/NG/REVIEW) + 결함 목록 출력
 
 # 7. 웹 데모 확인
-uvicorn web.app:app --reload --port 8000
+uvicorn web_hwang.app:app --reload --port 8000
 # 기대: http://localhost:8000 접속 후 검사 동작 확인
 ```
 

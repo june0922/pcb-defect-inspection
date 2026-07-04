@@ -3,9 +3,9 @@
 DeepPCB group 의 640×640 크롭들을 N×M 격자로 이어붙여 가상 보드 3종을 생성한다.
 
 사용 (레포 루트에서):
-    python web/tools/build_demo_boards.py [--raw-data <경로>] [--group group00041] [--rows 4] [--cols 4]
+    python web_hwang/tools/build_demo_boards.py [--raw-data <경로>] [--group group00041] [--rows 4] [--cols 4]
 
-생성 결과 (web/samples/boards/):
+생성 결과 (web_hwang/samples/boards/):
     ok_board.jpg     / ok_board_map.json     — _temp(결함없음) 크롭 전체  → OK 시나리오
     ng_board.jpg     / ng_board_map.json     — _test(결함있음) 크롭 전체  → NG 시나리오
     review_board.jpg / review_board_map.json — _temp 앞절반 + _test 뒷절반 → REVIEW 포함 시나리오
@@ -136,7 +136,7 @@ if __name__ == "__main__":
     parser.add_argument("--cols", type=int, default=4, help="격자 열 수")
     parser.add_argument(
         "--out-dir",
-        default="web/samples/boards",
+        default="web_hwang/samples/boards",
         help="보드 저장 경로 (레포 루트 기준)",
     )
     args = parser.parse_args()

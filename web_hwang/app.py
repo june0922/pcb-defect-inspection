@@ -1,9 +1,9 @@
 """PCB 결함 검사 웹 데모 서버 (FastAPI).
 
 실행 (레포 루트에서):
-    uvicorn web.app:app --reload --port 8000
+    uvicorn web_hwang.app:app --reload --port 8000
 
-또는 web/ 폴더 안에서:
+또는 web_hwang/ 폴더 안에서:
     uvicorn app:app --reload --port 8000
 
 API:
@@ -256,7 +256,7 @@ def inspect_board(board_id: str = Form(...)):
     if not board_path.exists() or not map_path.exists():
         raise HTTPException(
             status_code=404,
-            detail=f"보드 없음: {safe_id}. 먼저 python web/tools/build_demo_boards.py 를 실행하세요.",
+            detail=f"보드 없음: {safe_id}. 먼저 python web_hwang/tools/build_demo_boards.py 를 실행하세요.",
         )
 
     meta      = json.loads(map_path.read_text())
