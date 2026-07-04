@@ -310,10 +310,19 @@ class MainWindow(QMainWindow):
 
     def _open_settings_dialog(self):
         dialog = SettingsDialog(self._app_settings, self)
-        if dialog.exec_():
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
             new_settings = dialog.get_settings()
-            if new_settings != self._app_settings:
-                if self._current_folder:
+            
+            # 변경 여부를 명시적으로 확인
+            is_changed = False
+            for k in ["min_conf", "max_conf", "iou_thresh"]:
+                if new_settings[k] != self._app_settings.get(k):
+                    is_changed = True
+                    break
+                    
+            if is_changed:
+                if getattr(self, "_current_folder", None):
                     reply = QMessageBox.question(
                         self, "Settings Changed",
                         "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다.\n진행 중인 리뷰 내역은 초기화됩니다. 계속하시겠습니까?",
@@ -322,6 +331,8 @@ class MainWindow(QMainWindow):
                     if reply == QMessageBox.Yes:
                         self._app_settings = new_settings
                         self._save_settings(self._app_settings)
+                        # UI 강제 갱신 후 즉시 재연산 시작
+                        QApplication.processEvents()
                         self._start_inference(self._current_folder)
                 else:
                     self._app_settings = new_settings
@@ -389,10 +400,17 @@ class MainWindow(QMainWindow):
         self._start_inference(folder)
 
     def _start_inference(self, folder):
-        # 기존 워커 정리
+        self._current_folder = folder
+        
+        # 기존 워커 정리 로직 (기존 워커가 모델 로딩 등 작업 중일 경우 대비)
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._worker.wait(3000)
+            # 신호 차단하여 기존 워커의 콜백(에러, 완료 등)이 더 이상 UI를 교란하지 않도록 함
+            try:
+                self._worker.disconnect()
+            except Exception:
+                pass
+            self._worker.wait(1000) # 1초만 대기 후 바로 진행 (응답 없는 스레드는 백그라운드에서 자연 종료되도록 둠)
 
         # 기존 데이터 초기화
         self._defects.clear()
