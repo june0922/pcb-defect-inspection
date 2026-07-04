@@ -77,19 +77,21 @@ def main(config_path: str = "config.yaml") -> None:
     tune_results_file = paths["runs"] / "tune" / "tune_results.ndjson"
     should_resume = tune_results_file.exists()
 
+    total = tc.get("iterations", 100)
+    completed = 0
     if should_resume:
         completed = sum(1 for line in tune_results_file.open(encoding="utf-8") if line.strip())
-        total = tc.get("iterations", 100)
         print(f"\n[tune] 이전 튜닝 결과 발견 — iteration {completed}/{total}에서 이어서 시작합니다.")
     else:
-        print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 150)})")
+        print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {total}회, 에포크/회: {tc.get('epochs', 150)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
 
     from utils import GlobalProgressCallback
     eta_callback = GlobalProgressCallback(
         total_epochs_per_run=tc.get("epochs", 150),
-        total_runs=tc.get("iterations", 100),
-        run_type="Tune"
+        total_runs=total,
+        run_type="Tune",
+        starting_run=completed
     )
     model.add_callback("on_pretrain_routine_end", eta_callback.on_pretrain_routine_end)
     model.add_callback("on_train_batch_end", eta_callback.on_train_batch_end)

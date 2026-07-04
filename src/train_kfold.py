@@ -173,8 +173,22 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     
     images_arr = np.array(images)
     
+    # 완료된 fold 수를 세어 시작 run 번호 지정
+    completed_folds = 0
+    if resume:
+        for fold in range(k):
+            fold_num = fold + 1
+            best_dst = paths["weights"] / f"best_fold_{fold_num}.pt"
+            if best_dst.exists():
+                completed_folds += 1
+
     from utils import GlobalProgressCallback
-    eta_callback = GlobalProgressCallback(total_epochs_per_run=tc["epochs"], total_runs=k, run_type="Fold")
+    eta_callback = GlobalProgressCallback(
+        total_epochs_per_run=tc["epochs"], 
+        total_runs=k, 
+        run_type="Fold",
+        starting_run=completed_folds
+    )
     
     for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y)):
         fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호

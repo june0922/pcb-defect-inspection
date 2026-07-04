@@ -61,12 +61,12 @@ class GlobalProgressCallback:
     """전체 스크립트 실행(전체 폴드, 반복 등)에 걸쳐 단일 TQDM 바를 유지하는 콜백.
     YOLO의 기본 콘솔 출력(verbose=False)을 대체하여 깔끔한 진행률 바를 제공합니다.
     """
-    def __init__(self, total_epochs_per_run: int, total_runs: int = 1, run_type: str = "Fold"):
+    def __init__(self, total_epochs_per_run: int, total_runs: int = 1, run_type: str = "Fold", starting_run: int = 0):
         self.total_epochs_per_run = total_epochs_per_run
         self.total_runs = total_runs
         self.run_type = run_type
         
-        self.current_run = 0
+        self.current_run = starting_run
         self.global_pbar = None
         self.start_time = None
         
@@ -78,12 +78,28 @@ class GlobalProgressCallback:
         # 매 model.train() 이 시작될 때마다 (즉 새로운 폴드나 이터레이션 시작 시) 호출됨
         self.current_run += 1
         
+        train_loader = getattr(trainer, 'train_loader', None)
+        batches_per_epoch = len(train_loader) if train_loader else 0
+        start_epoch = getattr(trainer, 'start_epoch', 0)
+        epochs = getattr(trainer, 'epochs', self.total_epochs_per_run)
+        
+        # 이번 run에서 실제 실행할 에포크 수
+        epochs_this_run = epochs - start_epoch
+        
+        if not hasattr(self, 'actual_total_batches'):
+            self.actual_total_batches = 0
+            
+        # 이번 run에서 추가되는 총 배치 수 누적
+        self.actual_total_batches += epochs_this_run * batches_per_epoch
+        
+        # 미래에 실행될 남은 런(폴드/이터레이션)의 예상 배치 수 계산
+        remaining_runs = self.total_runs - self.current_run
+        estimated_future_batches = remaining_runs * self.total_epochs_per_run * batches_per_epoch
+        
+        current_total = self.actual_total_batches + estimated_future_batches
+        
         if self.global_pbar is None:
-            train_loader = getattr(trainer, 'train_loader', None)
-            batches_per_epoch = len(train_loader) if train_loader else 0
-            
-            self.total_train_batches = self.total_epochs_per_run * self.total_runs * batches_per_epoch
-            
+            self.total_train_batches = current_total
             # 단일 TQDM 바 생성
             self.global_pbar = tqdm(
                 total=self.total_train_batches, 
@@ -92,6 +108,9 @@ class GlobalProgressCallback:
                 leave=True
             )
             self.start_time = time.time()
+        else:
+            self.total_train_batches = current_total
+            self.global_pbar.total = self.total_train_batches
             
     def on_train_batch_end(self, trainer):
         if self.global_pbar is None:
