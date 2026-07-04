@@ -237,6 +237,8 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             resume=fold_resume,
             verbose=False,
             optimizer=tc.get("optimizer", "auto"),
+            lr0=tc.get("lr0", 0.01),
+            lrf=tc.get("lrf", 0.01),
             cos_lr=tc.get("cos_lr", False),
             flipud=tc.get("flipud", 0.0),
             fliplr=tc.get("fliplr", 0.5),
