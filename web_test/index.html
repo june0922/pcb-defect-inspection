@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Model Evaluation Viewer</title>
+    <link rel="stylesheet" href="style.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <header class="top-header">
+        <h1>ATI PCB Defect Inspection - Model Evaluation</h1>
+        <div class="progress-info" id="progress-info">Image: 0 / 0</div>
+    </header>
+
+    <main class="viewer-container">
+        <!-- Baseline Panel (Left) -->
+        <section class="panel left-panel">
+            <div class="panel-header">
+                <h2 data-tooltip="MS COCO 데이터셋으로 사전 학습된 기본 YOLOv8 나노 모델.&#10;특정 도메인(PCB)에 대한 학습이 되어있지 않은 베이스라인입니다.">Baseline (yolov8n.pt)</h2>
+            </div>
+            
+            <div class="metrics-card" id="baseline-metrics">
+                <div class="metric-item highlight">
+                    <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
+                    <span class="value" id="base-recall">-</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
+                    <span class="value" id="base-map50">-</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
+                    <span class="value" id="base-map5095">-</span>
+                </div>
+            </div>
+
+            <div class="image-wrapper">
+                <img id="base-img" src="" alt="Baseline Image" />
+            </div>
+        </section>
+
+        <!-- Ensemble Panel (Right) -->
+        <section class="panel right-panel">
+            <div class="panel-header">
+                <h2 data-tooltip="K-Fold 교차 검증을 포함한 파인튜닝 과정을 통해&#10;PCB 불량 특징(open, short 등)을 학습한 최종 맞춤형 모델입니다.">Final Model (best.pt)</h2>
+            </div>
+            
+            <div class="metrics-card" id="ensemble-metrics">
+                <div class="metric-item highlight">
+                    <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
+                    <span class="value" id="ens-recall">-</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
+                    <span class="value" id="ens-map50">-</span>
+                </div>
+                <div class="metric-item">
+                    <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
+                    <span class="value" id="ens-map5095">-</span>
+                </div>
+            </div>
+
+            <div class="image-wrapper">
+                <img id="ens-img" src="" alt="Final Model Image" />
+            </div>
+        </section>
+    </main>
+
+    <footer class="controls-bar">
+        <div class="filename-display" id="filename-display">filename.jpg</div>
+        
+        <div class="playback-controls">
+            <button class="btn" id="btn-prev" title="Previous Image">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+            </button>
+            <button class="btn" id="btn-play" title="Play/Pause">
+                <svg id="icon-play" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                <svg id="icon-pause" style="display:none;" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/></svg>
+            </button>
+            <button class="btn" id="btn-next" title="Next Image">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            </button>
+        </div>
+
+        <div class="speed-controls">
+            <span class="speed-label">Speed:</span>
+            <button class="speed-btn active" data-speed="1">1X</button>
+            <button class="speed-btn" data-speed="2">2X</button>
+            <button class="speed-btn" data-speed="4">4X</button>
+            <button class="speed-btn" data-speed="8">8X</button>
+            <button class="speed-btn" data-speed="16">16X</button>
+        </div>
+    </footer>
+
+    <script src="results/data.js"></script>
+    <script src="script.js"></script>
+</body>
+</html>

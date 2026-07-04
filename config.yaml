@@ -42,3 +42,5 @@ tune:
 kfold:
   k: 5
   random_state: 42
+evaluate:
+  weights: weights/best.pt
