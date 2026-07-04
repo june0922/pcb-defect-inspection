@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
-    QApplication, QAction, QShortcut, QToolBar, QSpinBox, QDoubleSpinBox
+    QApplication, QAction, QShortcut, QDialog, QFormLayout, QDialogButtonBox, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
 from PyQt5.QtGui import (
@@ -66,6 +66,59 @@ class GlobalView(QGraphicsView):
             self.fitInView(self.scene().sceneRect(), Qt.KeepAspectRatio)
 
 
+# ── SettingsDialog ────────────────────────────────────────────
+
+class SettingsDialog(QDialog):
+    def __init__(self, current_settings, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(300)
+        
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        
+        self.min_spin = QSpinBox()
+        self.min_spin.setRange(0, 100)
+        self.min_spin.setSuffix(" %")
+        self.min_spin.setValue(current_settings.get("min_conf", 50))
+        
+        self.max_spin = QSpinBox()
+        self.max_spin.setRange(0, 100)
+        self.max_spin.setSuffix(" %")
+        self.max_spin.setValue(current_settings.get("max_conf", 100))
+        
+        self.iou_spin = QDoubleSpinBox()
+        self.iou_spin.setRange(0.10, 0.95)
+        self.iou_spin.setSingleStep(0.05)
+        self.iou_spin.setValue(current_settings.get("iou_thresh", 0.45))
+        
+        form_layout.addRow("Min Confidence:", self.min_spin)
+        form_layout.addRow("Max Confidence:", self.max_spin)
+        form_layout.addRow("IoU Threshold:", self.iou_spin)
+        
+        layout.addLayout(form_layout)
+        
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
+        self.button_box.button(QDialogButtonBox.Apply).clicked.connect(self.accept)
+        self.button_box.button(QDialogButtonBox.Cancel).clicked.connect(self.reject)
+        layout.addWidget(self.button_box)
+        
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ccc; }
+            QLabel { color: #ccc; }
+            QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
+            QPushButton { background-color: #333; color: #ccc; padding: 5px; }
+            QPushButton:hover { background-color: #444; }
+        """)
+
+    def get_settings(self):
+        return {
+            "min_conf": self.min_spin.value(),
+            "max_conf": self.max_spin.value(),
+            "iou_thresh": self.iou_spin.value()
+        }
+
+
 # ── MainWindow ────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -95,6 +148,10 @@ class MainWindow(QMainWindow):
         self._current_image_path: str | None = None
         self._last_verdict_time: float = 0.0
         self._worker: InferenceWorker | None = None
+        
+        self._current_folder = None
+        self._settings_file = Path(__file__).parent / "settings.json"
+        self._app_settings = self._load_settings()
 
         self._init_ui()
         self._init_menu()
@@ -104,41 +161,27 @@ class MainWindow(QMainWindow):
         QApplication.processEvents()
         self._select_folder_and_start()
 
+    def _load_settings(self):
+        default_settings = {"min_conf": 50, "max_conf": 100, "iou_thresh": 0.45}
+        if self._settings_file.exists():
+            try:
+                with open(self._settings_file, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    return {**default_settings, **settings}
+            except Exception:
+                pass
+        return default_settings
+
+    def _save_settings(self, settings):
+        try:
+            with open(self._settings_file, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=4)
+        except Exception as e:
+            QMessageBox.warning(self, "Warning", f"Failed to save settings: {e}")
+
     # ── UI 초기화 ──────────────────────────────────────────────
 
     def _init_ui(self):
-        # ── 툴바 (Min/Max Confidence 설정) ──
-        self._toolbar = self.addToolBar("Settings")
-        self._toolbar.setMovable(False)
-        self._toolbar.setStyleSheet("QToolBar { background-color: #1a1a1a; color: #ccc; border: none; padding: 4px; }")
-
-        self._min_conf_spin = QSpinBox()
-        self._min_conf_spin.setRange(0, 100)
-        self._min_conf_spin.setValue(50)
-        self._min_conf_spin.setSuffix(" %")
-        self._min_conf_spin.setStyleSheet("QSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
-        
-        self._max_conf_spin = QSpinBox()
-        self._max_conf_spin.setRange(0, 100)
-        self._max_conf_spin.setValue(100)
-        self._max_conf_spin.setSuffix(" %")
-        self._max_conf_spin.setStyleSheet("QSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
-        
-        self._iou_spin = QDoubleSpinBox()
-        self._iou_spin.setRange(0.10, 0.95)
-        self._iou_spin.setSingleStep(0.05)
-        self._iou_spin.setValue(0.45)
-        self._iou_spin.setStyleSheet("QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
-
-        self._toolbar.addWidget(QLabel("Min Confidence: "))
-        self._toolbar.addWidget(self._min_conf_spin)
-        self._toolbar.addSeparator()
-        self._toolbar.addWidget(QLabel(" Max Confidence: "))
-        self._toolbar.addWidget(self._max_conf_spin)
-        self._toolbar.addSeparator()
-        self._toolbar.addWidget(QLabel(" IoU Threshold: "))
-        self._toolbar.addWidget(self._iou_spin)
-
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -254,6 +297,30 @@ class MainWindow(QMainWindow):
         save_action.setShortcut("Ctrl+S")
         save_action.triggered.connect(self._save_results)
         file_menu.addAction(save_action)
+
+        option_menu = menu_bar.addMenu("Option")
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self._open_settings_dialog)
+        option_menu.addAction(settings_action)
+
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(self._app_settings, self)
+        if dialog.exec_():
+            new_settings = dialog.get_settings()
+            if new_settings != self._app_settings:
+                if self._current_folder:
+                    reply = QMessageBox.question(
+                        self, "Settings Changed",
+                        "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다. 진행하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if reply == QMessageBox.Yes:
+                        self._app_settings = new_settings
+                        self._save_settings(self._app_settings)
+                        self._start_inference(self._current_folder)
+                else:
+                    self._app_settings = new_settings
+                    self._save_settings(self._app_settings)
 
     def _connect_signals(self):
         self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
