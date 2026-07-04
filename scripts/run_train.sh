@@ -16,6 +16,10 @@ if [[ "$run_pre" =~ ^[Yy]$ ]]; then
     echo "Running Preprocessing..."
     echo "========================================================"
     python src/preprocess.py --config config.yaml
+    if [ $? -ne 0 ]; then
+        echo "[Error] Preprocessing failed."
+        exit 1
+    fi
 fi
 
 echo ""
@@ -57,6 +61,11 @@ echo "========================================================"
 echo "Starting YOLOv8 Model Training..."
 echo "========================================================"
 $TRAIN_CMD
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[Error] Training encountered an error."
+    exit 1
+fi
 
 echo ""
 echo "========================================================"

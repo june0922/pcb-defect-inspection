@@ -17,6 +17,11 @@ if /I "%run_pre%"=="Y" (
     echo Running Preprocessing...
     echo ========================================================
     python src\preprocess.py --config config.yaml
+    if errorlevel 1 (
+        echo [Error] Preprocessing failed.
+        pause
+        exit /b 1
+    )
 )
 
 echo.
@@ -60,6 +65,12 @@ echo ========================================================
 echo Starting YOLOv8 Model Training...
 echo ========================================================
 %TRAIN_CMD%
+if errorlevel 1 (
+    echo.
+    echo [Error] Training encountered an error.
+    pause
+    exit /b 1
+)
 
 echo.
 echo ========================================================
