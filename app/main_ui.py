@@ -12,11 +12,11 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
-    QApplication, QAction,
+    QApplication, QAction, QShortcut
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
 from PyQt5.QtGui import (
-    QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon,
+    QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence
 )
 
 from vision_viewer import VisionViewer, confidence_color
@@ -81,7 +81,7 @@ class MainWindow(QMainWindow):
 
     단축키:
     - Space  → Pass (양품/False Call)
-    - Enter  → Fail (진성 불량)
+    - F      → Fail (진성 불량)
     - Shift(Hold) → 오버레이 숨김
     """
 
@@ -137,12 +137,14 @@ class MainWindow(QMainWindow):
         self._global_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._global_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self._global_view.setInteractive(False)
+        self._global_view.setFocusPolicy(Qt.NoFocus)
         self._global_pixmap_item = None
         self._crosshair_items: list = []
         self._h_splitter.addWidget(self._global_view)
 
         # Local View (Top-Right, 70%)
         self._local_view = VisionViewer()
+        self._local_view.setFocusPolicy(Qt.NoFocus)
         self._h_splitter.addWidget(self._local_view)
 
         self._h_splitter.setStretchFactor(0, 3)
@@ -150,6 +152,7 @@ class MainWindow(QMainWindow):
 
         # ── 하단: FilmStrip ──
         self._filmstrip = QListWidget()
+        self._filmstrip.setFocusPolicy(Qt.NoFocus)
         self._filmstrip.setViewMode(QListWidget.IconMode)
         self._filmstrip.setFlow(QListWidget.LeftToRight)
         self._filmstrip.setWrapping(False)
@@ -223,6 +226,50 @@ class MainWindow(QMainWindow):
 
     def _connect_signals(self):
         self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
+
+        # 단축키 설정 (위젯 포커스 무관하게 전역 동작하도록 QShortcut 사용)
+        self._shortcut_pass = QShortcut(QKeySequence(Qt.Key_Space), self)
+        self._shortcut_pass.setAutoRepeat(False)
+        self._shortcut_pass.activated.connect(lambda: self._verdict_current("pass"))
+
+        self._shortcut_fail = QShortcut(QKeySequence(Qt.Key_F), self)
+        self._shortcut_fail.setAutoRepeat(False)
+        self._shortcut_fail.activated.connect(lambda: self._verdict_current("fail"))
+
+        # 좌우 화살표 (이전/다음 결함 순차 이동)
+        self._shortcut_prev = QShortcut(QKeySequence(Qt.Key_Left), self)
+        self._shortcut_prev.activated.connect(self._navigate_previous)
+
+        self._shortcut_next = QShortcut(QKeySequence(Qt.Key_Right), self)
+        self._shortcut_next.activated.connect(self._navigate_next)
+
+        # 상하 화살표는 스크롤 기본 동작을 방지하기 위해 무시 (아무 동작도 하지 않음)
+        self._shortcut_up = QShortcut(QKeySequence(Qt.Key_Up), self)
+        self._shortcut_up.activated.connect(lambda: None)
+
+        self._shortcut_down = QShortcut(QKeySequence(Qt.Key_Down), self)
+        self._shortcut_down.activated.connect(lambda: None)
+
+        # W, A, S, D 패닝 (상하좌우 30픽셀씩 이동)
+        PAN_STEP = 30
+        self._shortcut_w = QShortcut(QKeySequence(Qt.Key_W), self)
+        self._shortcut_w.activated.connect(lambda: self._local_view.pan(0, -PAN_STEP))
+
+        self._shortcut_s = QShortcut(QKeySequence(Qt.Key_S), self)
+        self._shortcut_s.activated.connect(lambda: self._local_view.pan(0, PAN_STEP))
+
+        self._shortcut_a = QShortcut(QKeySequence(Qt.Key_A), self)
+        self._shortcut_a.activated.connect(lambda: self._local_view.pan(-PAN_STEP, 0))
+
+        self._shortcut_d = QShortcut(QKeySequence(Qt.Key_D), self)
+        self._shortcut_d.activated.connect(lambda: self._local_view.pan(PAN_STEP, 0))
+
+        # Q(축소), E(확대) 줌
+        self._shortcut_q = QShortcut(QKeySequence(Qt.Key_Q), self)
+        self._shortcut_q.activated.connect(lambda: self._local_view.zoom(zoom_in=False))
+
+        self._shortcut_e = QShortcut(QKeySequence(Qt.Key_E), self)
+        self._shortcut_e.activated.connect(lambda: self._local_view.zoom(zoom_in=True))
 
     # ── 추론 시작 ──────────────────────────────────────────────
 
@@ -363,7 +410,7 @@ class MainWindow(QMainWindow):
             self._progress_bar.setVisible(False)
             self._status_label.setText(
                 f"Inference complete. {n_defects} defects found. "
-                f"Space=Pass / Enter=Fail / Shift=Hide overlay"
+                f"Space=Pass / F=Fail / Shift=Hide overlay"
             )
 
     @pyqtSlot(str)
@@ -512,11 +559,7 @@ class MainWindow(QMainWindow):
     # ── 단축키 ─────────────────────────────────────────────────
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Space and not event.isAutoRepeat():
-            self._verdict_current("pass")
-        elif event.key() == Qt.Key_Return and not event.isAutoRepeat():
-            self._verdict_current("fail")
-        elif event.key() == Qt.Key_Shift and not event.isAutoRepeat():
+        if event.key() == Qt.Key_Shift and not event.isAutoRepeat():
             self._local_view.set_overlay_visible(False)
         else:
             super().keyPressEvent(event)
@@ -528,7 +571,10 @@ class MainWindow(QMainWindow):
             super().keyReleaseEvent(event)
 
     def _verdict_current(self, verdict):
-        """현재 결함에 판정(Pass/Fail) 적용 후 다음 이동. 100ms 디바운스."""
+        """현재 결함에 판정(Pass/Fail) 적용.
+        단, 미판정(pending) 상태였던 것을 판정할 때만 다음 결함으로 자동 이동하며,
+        이미 판정된 결함의 마킹을 수정할 때는 그 자리에 머무릅니다.
+        """
         now = time.time()
         if now - self._last_verdict_time < DEBOUNCE_SEC:
             return
@@ -538,9 +584,16 @@ class MainWindow(QMainWindow):
             return
 
         entry = self._defects[self._current_index]
+        
+        # 변경 전 상태가 'pending'이었는지 확인
+        was_pending = (entry.verdict == "pending")
+        
         entry.verdict = verdict
         self._update_thumbnail_border(self._current_index)
-        self._advance_to_next()
+        
+        # 처음 마킹하는 경우에만 다음 미판정 결함으로 자동 이동
+        if was_pending:
+            self._advance_to_next()
 
     def _advance_to_next(self):
         """다음 미판정(pending) 결함으로 자동 포커스 이동."""
@@ -561,6 +614,24 @@ class MainWindow(QMainWindow):
 
         # 모든 결함 리뷰 완료
         self._show_completion_summary()
+
+    def _navigate_previous(self):
+        """이전 결함으로 수동 이동."""
+        if not self._defects:
+            return
+        idx = self._current_index - 1
+        if idx < 0:
+            idx = len(self._defects) - 1
+        self._filmstrip.setCurrentRow(idx)
+
+    def _navigate_next(self):
+        """다음 결함으로 수동 이동."""
+        if not self._defects:
+            return
+        idx = self._current_index + 1
+        if idx >= len(self._defects):
+            idx = 0
+        self._filmstrip.setCurrentRow(idx)
 
     def _show_completion_summary(self):
         passed = sum(1 for d in self._defects if d.verdict == "pass")
