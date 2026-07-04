@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
-    QApplication, QAction, QShortcut
+    QApplication, QAction, QShortcut, QToolBar, QSpinBox
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
 from PyQt5.QtGui import (
@@ -22,11 +22,10 @@ from PyQt5.QtGui import (
 from vision_viewer import VisionViewer, confidence_color
 from inference_worker import InferenceWorker
 
-# ── 프로젝트 루트 및 config 유틸리티 ──────────────────────────
+# ── 프로젝트 루트 ──────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
-from utils import load_config
 
 
 # ── 데이터 모델 ───────────────────────────────────────────────
@@ -108,6 +107,29 @@ class MainWindow(QMainWindow):
     # ── UI 초기화 ──────────────────────────────────────────────
 
     def _init_ui(self):
+        # ── 툴바 (Min/Max Confidence 설정) ──
+        self._toolbar = self.addToolBar("Settings")
+        self._toolbar.setMovable(False)
+        self._toolbar.setStyleSheet("QToolBar { background-color: #1a1a1a; color: #ccc; border: none; padding: 4px; }")
+
+        self._min_conf_spin = QSpinBox()
+        self._min_conf_spin.setRange(0, 100)
+        self._min_conf_spin.setValue(50)
+        self._min_conf_spin.setSuffix(" %")
+        self._min_conf_spin.setStyleSheet("QSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
+        
+        self._max_conf_spin = QSpinBox()
+        self._max_conf_spin.setRange(0, 100)
+        self._max_conf_spin.setValue(100)
+        self._max_conf_spin.setSuffix(" %")
+        self._max_conf_spin.setStyleSheet("QSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
+
+        self._toolbar.addWidget(QLabel("Min Confidence: "))
+        self._toolbar.addWidget(self._min_conf_spin)
+        self._toolbar.addSeparator()
+        self._toolbar.addWidget(QLabel(" Max Confidence: "))
+        self._toolbar.addWidget(self._max_conf_spin)
+
         central = QWidget()
         self.setCentralWidget(central)
         main_layout = QVBoxLayout(central)
@@ -319,13 +341,10 @@ class MainWindow(QMainWindow):
             wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
             weight_paths.append(str(wp))
 
-        # config 에서 임계값 읽기
-        try:
-            cfg = load_config(str(_PROJECT_ROOT / "config.yaml"))
-            conf_thresh = cfg.get("judge", {}).get("conf_threshold", 0.5)
-            iou_thresh = cfg.get("judge", {}).get("iou_threshold", 0.45)
-        except Exception:
-            conf_thresh, iou_thresh = 0.5, 0.45
+        # UI에서 설정된 임계값 읽기
+        min_conf = self._min_conf_spin.value() / 100.0
+        max_conf = self._max_conf_spin.value() / 100.0
+        iou_thresh = 0.45 # 기본 IoU 값
 
         # GPU/CPU 자동 판별
         try:
@@ -336,7 +355,8 @@ class MainWindow(QMainWindow):
 
         self._worker = InferenceWorker(
             weight_paths=weight_paths,
-            conf_thresh=conf_thresh,
+            min_conf=min_conf,
+            max_conf=max_conf,
             iou_thresh=iou_thresh,
             device=device,
         )
