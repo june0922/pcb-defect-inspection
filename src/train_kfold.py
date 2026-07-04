@@ -230,12 +230,24 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             workers=tc.get("workers", 4),
             cache=tc.get("cache", False),
             patience=tc.get("patience", 50),
-            device=device,                     # GPU(0) 또는 CPU 명시
+            device=device,
             project=str(paths["runs"] / "kfold"),
             name=f"fold_{fold_num}",
             exist_ok=True,
-            resume=fold_resume,                # ultralytics 내부 resume 활성화
+            resume=fold_resume,
             verbose=False,
+            optimizer=tc.get("optimizer", "auto"),
+            lr0=tc.get("lr0", 0.01),
+            lrf=tc.get("lrf", 0.01),
+            cos_lr=tc.get("cos_lr", False),
+            flipud=tc.get("flipud", 0.0),
+            fliplr=tc.get("fliplr", 0.5),
+            mosaic=tc.get("mosaic", 1.0),
+            box=tc.get("box", 10.0),
+            cls=tc.get("cls", 0.5),
+            dfl=tc.get("dfl", 2.0),
+            rect=tc.get("rect", True),
+            iou=tc.get("iou", 0.7),
         )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)

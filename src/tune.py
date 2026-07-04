@@ -109,9 +109,21 @@ def main(config_path: str = "config.yaml") -> None:
         cache=tc.get("cache", False),
         project=str(paths["runs"]),
         name="tune",
-        resume=should_resume,   # exist_ok=True 대신 resume 을 정확히 사용
-        use_ray=False,           # Ultralytics 기본 내장 GA 튜너 사용
+        resume=should_resume,
+        use_ray=False,
         verbose=False,
+        optimizer=tc.get("optimizer", "auto"),
+        lr0=tc.get("lr0", 0.01),
+        lrf=tc.get("lrf", 0.01),
+        cos_lr=tc.get("cos_lr", False),
+        flipud=tc.get("flipud", 0.0),
+        fliplr=tc.get("fliplr", 0.5),
+        mosaic=tc.get("mosaic", 1.0),
+        box=tc.get("box", 10.0),
+        cls=tc.get("cls", 0.5),
+        dfl=tc.get("dfl", 2.0),
+        rect=tc.get("rect", True),
+        iou=tc.get("iou", 0.7),
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")
