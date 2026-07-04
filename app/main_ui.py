@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
-    QApplication, QAction, QShortcut
+    QApplication, QAction, QShortcut, QDialog, QFormLayout, QDialogButtonBox, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
 from PyQt5.QtGui import (
@@ -22,11 +22,10 @@ from PyQt5.QtGui import (
 from vision_viewer import VisionViewer, confidence_color
 from inference_worker import InferenceWorker
 
-# ── 프로젝트 루트 및 config 유틸리티 ──────────────────────────
+# ── 프로젝트 루트 ──────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
-from utils import load_config
 
 
 # ── 데이터 모델 ───────────────────────────────────────────────
@@ -67,6 +66,60 @@ class GlobalView(QGraphicsView):
             self.fitInView(self.scene().sceneRect(), Qt.KeepAspectRatio)
 
 
+# ── SettingsDialog ────────────────────────────────────────────
+
+class SettingsDialog(QDialog):
+    def __init__(self, current_settings, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Settings")
+        self.setMinimumWidth(300)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        layout = QVBoxLayout(self)
+        form_layout = QFormLayout()
+        
+        self.min_spin = QSpinBox()
+        self.min_spin.setRange(0, 100)
+        self.min_spin.setSuffix(" %")
+        self.min_spin.setValue(current_settings.get("min_conf", 50))
+        
+        self.max_spin = QSpinBox()
+        self.max_spin.setRange(0, 100)
+        self.max_spin.setSuffix(" %")
+        self.max_spin.setValue(current_settings.get("max_conf", 100))
+        
+        self.iou_spin = QDoubleSpinBox()
+        self.iou_spin.setRange(0.10, 0.95)
+        self.iou_spin.setSingleStep(0.05)
+        self.iou_spin.setValue(current_settings.get("iou_thresh", 0.45))
+        
+        form_layout.addRow("Min Confidence:", self.min_spin)
+        form_layout.addRow("Max Confidence:", self.max_spin)
+        form_layout.addRow("IoU Threshold:", self.iou_spin)
+        
+        layout.addLayout(form_layout)
+        
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+        
+        self.setStyleSheet("""
+            QDialog { background-color: #1e1e1e; color: #ccc; }
+            QLabel { color: #ccc; }
+            QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
+            QPushButton { background-color: #333; color: #ccc; padding: 5px; }
+            QPushButton:hover { background-color: #444; }
+        """)
+
+    def get_settings(self):
+        return {
+            "min_conf": int(self.min_spin.value()),
+            "max_conf": int(self.max_spin.value()),
+            "iou_thresh": round(float(self.iou_spin.value()), 2)
+        }
+
+
 # ── MainWindow ────────────────────────────────────────────────
 
 class MainWindow(QMainWindow):
@@ -96,14 +149,40 @@ class MainWindow(QMainWindow):
         self._current_image_path: str | None = None
         self._last_verdict_time: float = 0.0
         self._worker: InferenceWorker | None = None
+        
+        self._current_folder = None
+        self._settings_file = Path(__file__).parent / "settings.json"
+        self._app_settings = self._load_settings()
 
         self._init_ui()
         self._init_menu()
         self._connect_signals()
 
-        # 시작 시 폴더 선택 다이얼로그
-        QApplication.processEvents()
-        self._select_folder_and_start()
+        # 시작 시 빈 창으로 대기 (사용자가 직접 File > Open Folder 메뉴 이용)
+        self._status_label.setText("Ready. File > Open Folder... to start.")
+
+    def _load_settings(self):
+        default_settings = {"min_conf": 40, "max_conf": 90, "iou_thresh": 0.45}
+        if self._settings_file.exists():
+            try:
+                with open(self._settings_file, "r", encoding="utf-8") as f:
+                    settings = json.load(f)
+                    merged = {**default_settings, **settings}
+                    return {
+                        "min_conf": int(merged.get("min_conf", 40)),
+                        "max_conf": int(merged.get("max_conf", 90)),
+                        "iou_thresh": round(float(merged.get("iou_thresh", 0.45)), 2)
+                    }
+            except Exception:
+                pass
+        return default_settings
+
+    def _save_settings(self, settings):
+        try:
+            with open(self._settings_file, "w", encoding="utf-8") as f:
+                json.dump(settings, f, indent=4)
+        except Exception as e:
+            QMessageBox.warning(self, "Warning", f"Failed to save settings: {e}")
 
     # ── UI 초기화 ──────────────────────────────────────────────
 
@@ -224,6 +303,41 @@ class MainWindow(QMainWindow):
         save_action.triggered.connect(self._save_results)
         file_menu.addAction(save_action)
 
+        option_menu = menu_bar.addMenu("Option")
+        settings_action = QAction("Settings...", self)
+        settings_action.triggered.connect(self._open_settings_dialog)
+        option_menu.addAction(settings_action)
+
+    def _open_settings_dialog(self):
+        dialog = SettingsDialog(self._app_settings, self)
+        result = dialog.exec_()
+        if result == QDialog.Accepted:
+            new_settings = dialog.get_settings()
+            
+            # 변경 여부를 명시적으로 확인
+            is_changed = False
+            for k in ["min_conf", "max_conf", "iou_thresh"]:
+                if new_settings[k] != self._app_settings.get(k):
+                    is_changed = True
+                    break
+                    
+            if is_changed:
+                if getattr(self, "_current_folder", None):
+                    reply = QMessageBox.question(
+                        self, "Settings Changed",
+                        "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다.\n진행 중인 리뷰 내역은 초기화됩니다. 계속하시겠습니까?",
+                        QMessageBox.Yes | QMessageBox.No
+                    )
+                    if reply == QMessageBox.Yes:
+                        self._app_settings = new_settings
+                        self._save_settings(self._app_settings)
+                        # UI 강제 갱신 후 즉시 재연산 시작
+                        QApplication.processEvents()
+                        self._start_inference(self._current_folder)
+                else:
+                    self._app_settings = new_settings
+                    self._save_settings(self._app_settings)
+
     def _connect_signals(self):
         self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
 
@@ -286,10 +400,17 @@ class MainWindow(QMainWindow):
         self._start_inference(folder)
 
     def _start_inference(self, folder):
-        # 기존 워커 정리
+        self._current_folder = folder
+        
+        # 기존 워커 정리 로직 (기존 워커가 모델 로딩 등 작업 중일 경우 대비)
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            self._worker.wait(3000)
+            # 신호 차단하여 기존 워커의 콜백(에러, 완료 등)이 더 이상 UI를 교란하지 않도록 함
+            try:
+                self._worker.disconnect()
+            except Exception:
+                pass
+            self._worker.wait(1000) # 1초만 대기 후 바로 진행 (응답 없는 스레드는 백그라운드에서 자연 종료되도록 둠)
 
         # 기존 데이터 초기화
         self._defects.clear()
@@ -319,13 +440,10 @@ class MainWindow(QMainWindow):
             wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
             weight_paths.append(str(wp))
 
-        # config 에서 임계값 읽기
-        try:
-            cfg = load_config(str(_PROJECT_ROOT / "config.yaml"))
-            conf_thresh = cfg.get("judge", {}).get("conf_threshold", 0.5)
-            iou_thresh = cfg.get("judge", {}).get("iou_threshold", 0.45)
-        except Exception:
-            conf_thresh, iou_thresh = 0.5, 0.45
+        # 설정된 임계값 읽기
+        min_conf = self._app_settings.get("min_conf", 50) / 100.0
+        max_conf = self._app_settings.get("max_conf", 100) / 100.0
+        iou_thresh = self._app_settings.get("iou_thresh", 0.45)
 
         # GPU/CPU 자동 판별
         try:
@@ -336,7 +454,8 @@ class MainWindow(QMainWindow):
 
         self._worker = InferenceWorker(
             weight_paths=weight_paths,
-            conf_thresh=conf_thresh,
+            min_conf=min_conf,
+            max_conf=max_conf,
             iou_thresh=iou_thresh,
             device=device,
         )

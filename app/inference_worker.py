@@ -23,11 +23,12 @@ class InferenceWorker(QThread):
     THUMB_SIZE = 96
     CROP_PAD_RATIO = 0.3
 
-    def __init__(self, weight_paths, conf_thresh=0.5, iou_thresh=0.45,
+    def __init__(self, weight_paths, min_conf=0.5, max_conf=1.0, iou_thresh=0.45,
                  device="cpu", parent=None):
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
-        self._conf_thresh = conf_thresh
+        self._min_conf = min_conf
+        self._max_conf = max_conf
         self._iou_thresh = iou_thresh
         self._device = device
         self._image_paths = []
@@ -116,7 +117,7 @@ class InferenceWorker(QThread):
         for model in self._models:
             res = model.predict(
                 img_path,
-                conf=self._conf_thresh,
+                conf=self._min_conf,
                 iou=self._iou_thresh,
                 verbose=False,
                 device=self._device,
@@ -143,11 +144,15 @@ class InferenceWorker(QThread):
             all_labels,
             weights=None,
             iou_thr=self._iou_thresh,
-            skip_box_thr=self._conf_thresh,
+            skip_box_thr=self._min_conf,
         )
 
         detections = []
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
+            conf_score = float(score)
+            if not (self._min_conf <= conf_score <= self._max_conf):
+                continue
+                
             x1n, y1n, x2n, y2n = box_n
             cls_id = int(label)
             detections.append({
@@ -160,7 +165,7 @@ class InferenceWorker(QThread):
                 "bbox_norm": [float(x1n), float(y1n), float(x2n), float(y2n)],
                 "class_id": cls_id,
                 "class_name": self._class_names.get(cls_id, str(cls_id)),
-                "confidence": float(score),
+                "confidence": conf_score,
             })
 
         return detections
