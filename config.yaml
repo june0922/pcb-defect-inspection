@@ -52,12 +52,19 @@ tune:
   workers: 4
   cache: disk
   optimizer: AdamW
+  lr0: 0.001
+  lrf: 0.01
   cos_lr: true
   flipud: 0.5
   fliplr: 0.5
   mosaic: 1.0
   box: 7.5
   cls: 1.0
+  dfl: 2.0
+  rect: true
+  iou: 0.65
+  patience: 15
+  device: 0
 kfold:
   k: 5
   random_state: 42

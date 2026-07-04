@@ -82,12 +82,12 @@ def main(config_path: str = "config.yaml") -> None:
         total = tc.get("iterations", 100)
         print(f"\n[tune] 이전 튜닝 결과 발견 — iteration {completed}/{total}에서 이어서 시작합니다.")
     else:
-        print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 15)})")
+        print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {tc.get('iterations', 100)}회, 에포크/회: {tc.get('epochs', 150)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
 
     from utils import GlobalProgressCallback
     eta_callback = GlobalProgressCallback(
-        total_epochs_per_run=tc.get("epochs", 15),
+        total_epochs_per_run=tc.get("epochs", 150),
         total_runs=tc.get("iterations", 100),
         run_type="Tune"
     )
@@ -101,29 +101,31 @@ def main(config_path: str = "config.yaml") -> None:
     #               tune_results.ndjson 의 완료 행 수를 세어 다음 iteration 부터 자동으로 재개함.
     results = model.tune(
         data=str(data_yaml),
-        epochs=tc.get("epochs", 15),
+        epochs=tc.get("epochs", 150),
         iterations=tc.get("iterations", 100),
         imgsz=tc.get("imgsz", 640),
         batch=tc.get("batch", -1),
         workers=tc.get("workers", 4),
-        cache=tc.get("cache", False),
+        cache=tc.get("cache", "disk"),
+        patience=tc.get("patience", 15),
+        device=tc.get("device", 0),
         project=str(paths["runs"]),
         name="tune",
         resume=should_resume,
         use_ray=False,
         verbose=False,
-        optimizer=tc.get("optimizer", "auto"),
-        lr0=tc.get("lr0", 0.01),
+        optimizer=tc.get("optimizer", "AdamW"),
+        lr0=tc.get("lr0", 0.001),
         lrf=tc.get("lrf", 0.01),
-        cos_lr=tc.get("cos_lr", False),
-        flipud=tc.get("flipud", 0.0),
+        cos_lr=tc.get("cos_lr", True),
+        flipud=tc.get("flipud", 0.5),
         fliplr=tc.get("fliplr", 0.5),
         mosaic=tc.get("mosaic", 1.0),
         box=tc.get("box", 10.0),
-        cls=tc.get("cls", 0.5),
+        cls=tc.get("cls", 1.0),
         dfl=tc.get("dfl", 2.0),
         rect=tc.get("rect", True),
-        iou=tc.get("iou", 0.7),
+        iou=tc.get("iou", 0.65),
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")
