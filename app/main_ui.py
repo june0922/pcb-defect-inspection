@@ -73,6 +73,7 @@ class SettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Settings")
         self.setMinimumWidth(300)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
         
         layout = QVBoxLayout(self)
         form_layout = QFormLayout()
@@ -98,9 +99,9 @@ class SettingsDialog(QDialog):
         
         layout.addLayout(form_layout)
         
-        self.button_box = QDialogButtonBox(QDialogButtonBox.Apply | QDialogButtonBox.Cancel)
-        self.button_box.button(QDialogButtonBox.Apply).clicked.connect(self.accept)
-        self.button_box.button(QDialogButtonBox.Cancel).clicked.connect(self.reject)
+        self.button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
         
         self.setStyleSheet("""
@@ -113,9 +114,9 @@ class SettingsDialog(QDialog):
 
     def get_settings(self):
         return {
-            "min_conf": self.min_spin.value(),
-            "max_conf": self.max_spin.value(),
-            "iou_thresh": self.iou_spin.value()
+            "min_conf": int(self.min_spin.value()),
+            "max_conf": int(self.max_spin.value()),
+            "iou_thresh": round(float(self.iou_spin.value()), 2)
         }
 
 
@@ -166,7 +167,12 @@ class MainWindow(QMainWindow):
             try:
                 with open(self._settings_file, "r", encoding="utf-8") as f:
                     settings = json.load(f)
-                    return {**default_settings, **settings}
+                    merged = {**default_settings, **settings}
+                    return {
+                        "min_conf": int(merged.get("min_conf", 50)),
+                        "max_conf": int(merged.get("max_conf", 100)),
+                        "iou_thresh": round(float(merged.get("iou_thresh", 0.45)), 2)
+                    }
             except Exception:
                 pass
         return default_settings
@@ -310,7 +316,7 @@ class MainWindow(QMainWindow):
                 if self._current_folder:
                     reply = QMessageBox.question(
                         self, "Settings Changed",
-                        "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다. 진행하시겠습니까?",
+                        "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다.\n진행 중인 리뷰 내역은 초기화됩니다. 계속하시겠습니까?",
                         QMessageBox.Yes | QMessageBox.No
                     )
                     if reply == QMessageBox.Yes:
