@@ -12,7 +12,7 @@ from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
-    QApplication, QAction, QShortcut, QToolBar, QSpinBox
+    QApplication, QAction, QShortcut, QToolBar, QSpinBox, QDoubleSpinBox
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
 from PyQt5.QtGui import (
@@ -123,12 +123,21 @@ class MainWindow(QMainWindow):
         self._max_conf_spin.setValue(100)
         self._max_conf_spin.setSuffix(" %")
         self._max_conf_spin.setStyleSheet("QSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
+        
+        self._iou_spin = QDoubleSpinBox()
+        self._iou_spin.setRange(0.10, 0.95)
+        self._iou_spin.setSingleStep(0.05)
+        self._iou_spin.setValue(0.45)
+        self._iou_spin.setStyleSheet("QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }")
 
         self._toolbar.addWidget(QLabel("Min Confidence: "))
         self._toolbar.addWidget(self._min_conf_spin)
         self._toolbar.addSeparator()
         self._toolbar.addWidget(QLabel(" Max Confidence: "))
         self._toolbar.addWidget(self._max_conf_spin)
+        self._toolbar.addSeparator()
+        self._toolbar.addWidget(QLabel(" IoU Threshold: "))
+        self._toolbar.addWidget(self._iou_spin)
 
         central = QWidget()
         self.setCentralWidget(central)
@@ -344,7 +353,7 @@ class MainWindow(QMainWindow):
         # UI에서 설정된 임계값 읽기
         min_conf = self._min_conf_spin.value() / 100.0
         max_conf = self._max_conf_spin.value() / 100.0
-        iou_thresh = 0.45 # 기본 IoU 값
+        iou_thresh = self._iou_spin.value()
 
         # GPU/CPU 자동 판별
         try:
