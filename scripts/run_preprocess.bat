@@ -1,0 +1,43 @@
+@echo off
+chcp 65001 >nul
+title Data Preprocessing
+
+:: Change working directory to the project root
+cd /d "%~dp0.."
+
+echo ========================================================
+echo Current Directory: %CD%
+echo ========================================================
+echo.
+
+echo ========================================================
+echo Current Configuration Parameters:
+echo ========================================================
+python scripts\show_config.py
+echo.
+
+set /p run_pre="Proceed with preprocessing? (Y/N, default is N): "
+if /I not "%run_pre%"=="Y" (
+    echo Preprocessing cancelled by user.
+    pause
+    exit /b 0
+)
+
+echo.
+echo ========================================================
+echo Running Preprocessing...
+echo ========================================================
+python src\preprocess.py --config config.yaml
+if errorlevel 1 (
+    echo.
+    echo [Error] Preprocessing failed.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================================
+echo Preprocessing Execution Finished.
+echo ========================================================
+pause
+exit /b 0
