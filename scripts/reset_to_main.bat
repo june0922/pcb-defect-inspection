@@ -30,11 +30,10 @@ git reset --hard origin/main
 :: NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch.
 if exist preprocessed_data rmdir /s /q preprocessed_data 2>nul
 if exist dataset rmdir /s /q dataset 2>nul
-if exist runs\detect rmdir /s /q runs\detect 2>nul
-if exist runs\train rmdir /s /q runs\train 2>nul
-if exist runs\tune rmdir /s /q runs\tune 2>nul
+if exist runs rmdir /s /q runs 2>nul
 if exist venv rmdir /s /q venv 2>nul
 if exist src\__pycache__ rmdir /s /q src\__pycache__ 2>nul
+if exist app\__pycache__ rmdir /s /q app\__pycache__ 2>nul
 :: Run git clean on remaining untracked/ignored files
 git clean -fdx < nul
 echo.
