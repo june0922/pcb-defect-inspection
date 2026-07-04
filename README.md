@@ -42,7 +42,6 @@ ati3_project/
 │   ├── train_kfold.py       # Stratified K-Fold 교차 검증
 │   ├── tune.py              # 유전 알고리즘 기반 하이퍼파라미터 튜닝
 │   ├── evaluate.py          # test 세트 mAP / Recall 평가
-│   ├── pcb_inspect.py       # 단일 이미지 OK/NG/REVIEW 판정
 │   └── visualize.py         # EDA 시각화 + 결과 주석 이미지 생성
 │
 ├── scripts/                 # 실행 보조 스크립트
@@ -108,8 +107,6 @@ ati3_project/
 └────────┬────────┘
          │
          ├── src/evaluate.py  →  test 세트 mAP / Recall 평가
-         │
-         ├── src/pcb_inspect.py  →  단일 이미지 OK/NG/REVIEW 판정
          │
          ├── web_hwang/app.py  →  웹 데모 (단일 이미지 + 보드 격자 검사)
          │
@@ -391,7 +388,7 @@ YOLO 검출 결과를 기반으로 **보드 단위 OK/NG/REVIEW 3단계 판정**
 
 ```bash
 # CLI 단일 이미지 판정
-python src/pcb_inspect.py <이미지 경로>
+python web_hwang/pcb_inspect.py <이미지 경로>
 ```
 
 #### 판정 로직 (Recall 우선 설계)
@@ -505,7 +502,7 @@ python src/tune.py
 python src/evaluate.py
 
 # 6. 단일 이미지 판정
-python src/pcb_inspect.py preprocessed_data/images/test/<이미지>.jpg
+python web_hwang/pcb_inspect.py preprocessed_data/images/test/<이미지>.jpg
 
 # 7. FastAPI 웹 데모 실행
 uvicorn web_hwang.app:app --reload --port 8000
@@ -543,7 +540,7 @@ python src/evaluate.py
 # 기대: Recall / mAP@0.5 / mAP@0.5:0.95 수치 출력
 
 # 6. 단일 이미지 판정
-python src/pcb_inspect.py preprocessed_data/images/test/<아무_이미지>.jpg
+python web_hwang/pcb_inspect.py preprocessed_data/images/test/<아무_이미지>.jpg
 # 기대: 판정(OK/NG/REVIEW) + 결함 목록 출력
 
 # 7. 웹 데모 확인
