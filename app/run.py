@@ -3,6 +3,12 @@
 import sys
 from pathlib import Path
 
+# PyTorch를 PyQt5보다 먼저 import (Windows DLL 충돌 방지)
+try:
+    import torch  # noqa: F401
+except ImportError:
+    pass
+
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QPalette, QColor, QFont
 from PyQt5.QtCore import Qt
