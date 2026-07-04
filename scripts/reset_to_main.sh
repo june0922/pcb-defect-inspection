@@ -23,8 +23,8 @@ git fetch origin --prune
 git reset --hard origin/main
 
 # Force delete untracked large directories to prevent issues
-# NOTE: Do NOT delete runs/, weights/, or preprocessed_data/ here — they are tracked in main branch.
-rm -rf dataset 2>/dev/null
+# NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch.
+rm -rf preprocessed_data dataset 2>/dev/null
 rm -rf runs/detect runs/train runs/tune venv src/__pycache__ 2>/dev/null
 
 git clean -fdx

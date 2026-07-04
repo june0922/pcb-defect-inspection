@@ -27,7 +27,8 @@ for /d %%D in (".git\refs\remotes\origin\*") do (
 git fetch origin --prune < nul
 git reset --hard origin/main
 :: Force delete untracked large directories to prevent y/n prompt freeze due to Windows file lock
-:: NOTE: Do NOT delete runs/, weights/, or preprocessed_data/ here — they are tracked in main branch.
+:: NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch.
+if exist preprocessed_data rmdir /s /q preprocessed_data 2>nul
 if exist dataset rmdir /s /q dataset 2>nul
 if exist runs\detect rmdir /s /q runs\detect 2>nul
 if exist runs\train rmdir /s /q runs\train 2>nul
