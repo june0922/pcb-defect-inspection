@@ -25,8 +25,13 @@ def get_paths(cfg: dict) -> dict[str, Path]:
     env = cfg["env"]
     env_paths = cfg["paths"][env]
 
-    raw_data = Path(env_paths["raw_data"]).resolve()
     project_root = Path(env_paths["project_root"]).resolve()
+    
+    raw_data_path = Path(env_paths["raw_data"])
+    if not raw_data_path.is_absolute():
+        raw_data = (project_root / raw_data_path).resolve()
+    else:
+        raw_data = raw_data_path.resolve()
 
     paths = {
         "raw_data": raw_data,
