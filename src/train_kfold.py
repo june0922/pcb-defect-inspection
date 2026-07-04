@@ -222,32 +222,18 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         model.add_callback("on_val_end", eta_callback.on_val_end)
         model.add_callback("on_train_end", eta_callback.on_train_end)
 
+        # 모델에 전달할 하이퍼파라미터에서 내부 처리용 키워드 제거
+        train_args = {k: v for k, v in tc.items() if k not in ["model", "device"]}
+
         results = model.train(
             data=str(data_yaml),
-            epochs=tc["epochs"],
-            batch=tc["batch"],
-            imgsz=tc["imgsz"],
-            workers=tc.get("workers", 4),
-            cache=tc.get("cache", "disk"),
-            patience=tc.get("patience", 15),
             device=device,
             project=str(paths["runs"] / "kfold"),
             name=f"fold_{fold_num}",
             exist_ok=True,
             resume=fold_resume,
             verbose=False,
-            optimizer=tc.get("optimizer", "auto"),
-            lr0=tc.get("lr0", 0.01),
-            lrf=tc.get("lrf", 0.01),
-            cos_lr=tc.get("cos_lr", False),
-            flipud=tc.get("flipud", 0.0),
-            fliplr=tc.get("fliplr", 0.5),
-            mosaic=tc.get("mosaic", 1.0),
-            box=tc.get("box", 7.5),
-            cls=tc.get("cls", 0.5),
-            dfl=tc.get("dfl", 1.5),
-            rect=tc.get("rect", False),
-            iou=tc.get("iou", 0.7),
+            **train_args
         )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)
