@@ -91,6 +91,8 @@ class VisionViewer(QGraphicsView):
         self._overlay_items = []
         self._overlay_visible = True
         self._zoom_factor = 1.15
+        self._min_zoom = 0.1      # 최소 10% 축소 허용
+        self._max_zoom = 50.0     # 최대 50배 확대 허용 (픽셀 단위 검사 가능)
         self._panning = False
         self._pan_start = QPointF()
 
@@ -171,6 +173,31 @@ class VisionViewer(QGraphicsView):
         self._pixmap_item = None
         self._overlay_items = []
 
+    def zoom(self, zoom_in: bool):
+        """키보드 단축키용 줌인/줌아웃 (중앙 기준)."""
+        factor = self._zoom_factor if zoom_in else (1.0 / self._zoom_factor)
+        self._apply_zoom(factor)
+
+    def _apply_zoom(self, factor: float):
+        """줌 배율 적용 시 설정된 최소/최대 한계를 벗어나지 않도록 제한합니다."""
+        current_zoom = self.transform().m11()
+        new_zoom = current_zoom * factor
+
+        if new_zoom < self._min_zoom:
+            factor = self._min_zoom / current_zoom
+        elif new_zoom > self._max_zoom:
+            factor = self._max_zoom / current_zoom
+
+        if factor != 1.0:
+            self.scale(factor, factor)
+
+    def pan(self, dx: int, dy: int):
+        """키보드 단축키용 패닝."""
+        h_bar = self.horizontalScrollBar()
+        v_bar = self.verticalScrollBar()
+        h_bar.setValue(h_bar.value() + dx)
+        v_bar.setValue(v_bar.value() + dy)
+
     # ── Corner Bracket Rendering ───────────────────────────────
 
     def _draw_corner_brackets(self, x1, y1, x2, y2, color,
@@ -228,7 +255,7 @@ class VisionViewer(QGraphicsView):
             factor = 1.0 / self._zoom_factor
         else:
             return
-        self.scale(factor, factor)
+        self._apply_zoom(factor)
 
     def mousePressEvent(self, event):
         """우클릭 드래그로 패닝 시작."""
