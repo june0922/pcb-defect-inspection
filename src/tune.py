@@ -96,36 +96,20 @@ def main(config_path: str = "config.yaml") -> None:
     model.add_callback("on_val_end", eta_callback.on_val_end)
     model.add_callback("on_train_end", eta_callback.on_train_end)
 
+    # 모델에 전달할 하이퍼파라미터에서 내부 처리용 키워드 제거
+    tune_args = {k: v for k, v in tc.items() if k not in ["model"]}
+
     # 튜닝 실행
     # resume=True → Tuner 내부에서 exist_ok=True 로 전환되어 같은 runs/tune/ 디렉토리를 재사용하고
     #               tune_results.ndjson 의 완료 행 수를 세어 다음 iteration 부터 자동으로 재개함.
     results = model.tune(
         data=str(data_yaml),
-        epochs=tc.get("epochs", 150),
-        iterations=tc.get("iterations", 100),
-        imgsz=tc.get("imgsz", 640),
-        batch=tc.get("batch", -1),
-        workers=tc.get("workers", 4),
-        cache=tc.get("cache", "disk"),
-        patience=tc.get("patience", 15),
-        device=tc.get("device", 0),
         project=str(paths["runs"]),
         name="tune",
         resume=should_resume,
         use_ray=False,
         verbose=False,
-        optimizer=tc.get("optimizer", "auto"),
-        lr0=tc.get("lr0", 0.01),
-        lrf=tc.get("lrf", 0.01),
-        cos_lr=tc.get("cos_lr", False),
-        flipud=tc.get("flipud", 0.0),
-        fliplr=tc.get("fliplr", 0.5),
-        mosaic=tc.get("mosaic", 1.0),
-        box=tc.get("box", 7.5),
-        cls=tc.get("cls", 0.5),
-        dfl=tc.get("dfl", 1.5),
-        rect=tc.get("rect", False),
-        iou=tc.get("iou", 0.7),
+        **tune_args
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")
