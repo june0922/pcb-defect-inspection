@@ -56,7 +56,6 @@ body {
 .viewer-container {
     display: flex;
     flex: 1;
-    overflow: hidden;
     position: relative;
     z-index: 20;
 }
@@ -239,11 +238,11 @@ body {
 [data-tooltip]::before {
     content: '';
     position: absolute;
-    bottom: 100%;
+    top: 100%;
     left: 50%;
     transform: translateX(-50%);
     border: 6px solid transparent;
-    border-top-color: rgba(15, 23, 42, 0.95);
+    border-bottom-color: rgba(15, 23, 42, 0.95);
     opacity: 0;
     pointer-events: none;
     transition: opacity 0.2s;
@@ -253,7 +252,7 @@ body {
 [data-tooltip]::after {
     content: attr(data-tooltip);
     position: absolute;
-    bottom: calc(100% + 6px);
+    top: calc(100% + 6px);
     left: 50%;
     transform: translateX(-50%);
     background: rgba(15, 23, 42, 0.95);
