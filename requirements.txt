@@ -5,7 +5,7 @@ pyyaml
 numpy
 matplotlib
 
-# 웹 데모 (web/)
+# 웹 데모 (web_hwang/)
 fastapi
 uvicorn[standard]
 python-multipart
