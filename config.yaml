@@ -42,6 +42,7 @@ train:
   cls: 1.0
   dfl: 2.0
   rect: true
+  iou: 0.65
 tune:
   batch: -1
   epochs: 150

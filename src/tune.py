@@ -123,6 +123,7 @@ def main(config_path: str = "config.yaml") -> None:
         cls=tc.get("cls", 0.5),
         dfl=tc.get("dfl", 2.0),
         rect=tc.get("rect", True),
+        iou=tc.get("iou", 0.7),
     )
 
     print(f"[tune] 튜닝이 완료되었습니다. 결과물은 {paths['runs']}/tune 디렉토리에 저장되었습니다.")

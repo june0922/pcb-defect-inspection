@@ -137,6 +137,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         cls=tc.get("cls", 0.5),
         dfl=tc.get("dfl", 2.0),
         rect=tc.get("rect", True),
+        iou=tc.get("iou", 0.7),
     )
 
     # best.pt 를 weights/ 로 복사
