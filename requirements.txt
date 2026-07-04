@@ -9,3 +9,7 @@ matplotlib
 fastapi
 uvicorn[standard]
 python-multipart
+
+# 테스트 결과 생성 (web_test/)
+ensemble-boxes
+torchmetrics
