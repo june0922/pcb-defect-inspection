@@ -23,12 +23,12 @@ split:
   train: 0.7
   val: 0.2
 train:
-  batch: -1
+  batch: 128
   epochs: 500
   imgsz: 640
   model: weights/yolov8n.pt
   patience: 50
-  workers: 4
+  workers: 8
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: disk
   optimizer: AdamW
@@ -44,12 +44,12 @@ train:
   rect: true
   iou: 0.65
 tune:
-  batch: -1
+  batch: 128
   epochs: 500
   imgsz: 640
   iterations: 20
   model: weights/yolov8n.pt
-  workers: 4
+  workers: 8
   cache: disk
   optimizer: AdamW
   lr0: 0.001
