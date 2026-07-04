@@ -12,6 +12,8 @@
 import sys
 import os
 os.environ["TQDM_FORCE_TTY"] = "1"
+import gc
+import signal
 import shutil
 import argparse
 import tempfile
@@ -239,6 +241,13 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         # 모델에 전달할 하이퍼파라미터에서 내부 처리용 키워드 제거
         train_args = {k: v for k, v in tc.items() if k not in ["model", "device"]}
 
+        # Colab 환경에서 cache="disk"는 fold 전환 시 DataLoader worker
+        # 정리 과정에서 SIGINT 누출을 유발하므로 "ram"으로 대체
+        is_colab = "COLAB_RELEASE_TAG" in os.environ or os.path.exists("/content")
+        if is_colab and train_args.get("cache") == "disk":
+            print("[kfold] ℹ️  Colab 환경 감지 → cache='disk'를 'ram'으로 변경 (SIGINT 방지)")
+            train_args["cache"] = "ram"
+
         results = model.train(
             data=str(data_yaml),
             device=device,
@@ -260,6 +269,19 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             print(f"[warn] Fold {fold_num} 최적 가중치를 찾지 못했습니다: {best_src}")
 
         data_yaml.unlink(missing_ok=True)
+
+        # Fold 전환 시 GPU 메모리 및 DataLoader worker 안전 정리
+        # SIGINT를 일시적으로 무시하여 worker 종료 시그널이 메인 프로세스로
+        # 전파되는 것을 방지
+        original_sigint = signal.getsignal(signal.SIGINT)
+        try:
+            signal.signal(signal.SIGINT, signal.SIG_IGN)
+            del model
+            gc.collect()
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        finally:
+            signal.signal(signal.SIGINT, original_sigint)
         # 텍스트 파일은 디버깅/재현을 위해 남겨두는 것도 좋지만, 필요하다면 삭제 가능
         # train_txt.unlink(missing_ok=True)
         # val_txt.unlink(missing_ok=True)
