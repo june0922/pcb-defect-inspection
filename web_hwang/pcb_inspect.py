@@ -12,7 +12,7 @@
     python -c "
     from ultralytics import YOLO
     from src.utils import load_config, get_paths
-    from src.pcb_inspect import inspect_image
+    from web_hwang.pcb_inspect import inspect_image
     cfg = load_config('config.yaml')
     paths = get_paths(cfg)
     model = YOLO(paths['weights'] / 'best.pt')
