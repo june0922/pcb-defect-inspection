@@ -39,12 +39,12 @@ SAMPLES_DIR = WEB_DIR / "samples"
 BOARDS_DIR  = SAMPLES_DIR / "boards"
 STATIC_DIR  = WEB_DIR / "static"
 
-# TODO(실제연결): 학습 완료 후 'yolov8s.pt' 를 지우고 best.pt 경로를 최우선으로 사용
+# TODO(실제연결): 학습 완료 후 config에 지정된 베이스 모델을 지우고 best.pt 경로를 최우선으로 사용
 BEST_MODEL_PATHS = [
     WEB_DIR / "best.pt",
     REPO_ROOT / "weights" / "best.pt",
 ]
-FALLBACK_MODEL = "yolov8s.pt"
+
  
 # ---------------------------------------------------------------------------
 # src 모듈 로드
@@ -81,19 +81,20 @@ def _fmt(d: dict) -> dict:
     return {**d, "center": list(d["center"])}
 
 
-def _find_model():
+def _find_model(fallback: str):
     for p in BEST_MODEL_PATHS:
         if p.exists():
             return str(p)
-    # best.pt 없으면 yolov8s.pt 로 폴백 (ultralytics 가 자동 다운로드)
-    print(f"[startup] best.pt 없음 → {FALLBACK_MODEL} 사용 (추론 전용)")
-    return FALLBACK_MODEL
+    # best.pt 없으면 config.yaml의 베이스 모델로 폴백
+    print(f"[startup] best.pt 없음 → {fallback} 사용 (추론 전용)")
+    return fallback
 
 
 def _startup() -> None:
     global _model, _cfg
     _cfg = load_config(str(CONFIG_PATH))
-    model_path = _find_model()
+    fallback_model = _cfg.get("train", {}).get("model", "weights/yolov8n.pt")
+    model_path = _find_model(fallback_model)
 
     from ultralytics import YOLO
     print(f"[startup] 모델 로드 중: {model_path}")
