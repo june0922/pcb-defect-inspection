@@ -67,8 +67,10 @@ def main(config_path: str = "config.yaml") -> None:
 
     data_yaml = build_data_yaml(paths["processed"])
 
-    # 모델 초기화 (PROJECT_ROOT 기준 절대 경로로 변환)
-    model_path = PROJECT_ROOT / tc.get("model", "weights/yolov8s.pt")
+    model_rel = tc.get("model")
+    if not model_rel:
+        raise ValueError("[오류] config.yaml에 'tune.model' 설정이 없습니다.")
+    model_path = PROJECT_ROOT / model_rel
     model = YOLO(str(model_path))
 
     # 이어하기(resume) 여부 자동 감지

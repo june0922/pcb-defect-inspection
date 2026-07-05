@@ -4,7 +4,7 @@
 
 ## 포함된 주요 파일
 
-* **`yolov8s.pt`**
+* **config.yaml에 명시된 베이스 모델 파일 (예: `yolov8n.pt`, `yolov8s.pt` 등)**
   * 모델 학습의 초기화에 사용되는 Ultralytics의 사전 학습된(Pre-trained) 기반 가중치(Base Weight) 파일입니다.
 * **`best_fold_1.pt` ~ `best_fold_5.pt`**
   * K-Fold 교차 검증 파이프라인(`src/train_kfold.py`)을 통해 학습된 5개의 개별 모델 가중치입니다.
