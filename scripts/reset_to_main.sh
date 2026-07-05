@@ -25,7 +25,7 @@ git reset --hard origin/main
 # Force delete untracked large directories to prevent issues
 # NOTE: Do NOT delete runs/ or weights/ here — they are tracked in main branch.
 rm -rf preprocessed_data dataset 2>/dev/null
-rm -rf runs venv src/__pycache__ app/__pycache__ 2>/dev/null
+rm -rf venv src/__pycache__ app/__pycache__ 2>/dev/null
 
 git clean -fdx
 echo ""
