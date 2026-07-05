@@ -114,11 +114,12 @@ ati3_project/
 │  (best_1~5.pt)  │  runs/train/  (로그, confusion matrix, 곡선 등)
 └────────┬────────┘
          │
-         ├── src/evaluate.py  →  test 세트 mAP / Recall 평가
-         │
-         ├── web_hwang/app.py  →  웹 데모 (단일 이미지 + 보드 격자 검사)
-         │
-         └── web_test/generate_results.py → (테스트용) 튜닝 전/후 WBF 앙상블 결과 비교용 데이터 생성
+         ▼
+┌─────────────────┐
+│ 데스크톱 GUI 앱 │  app/run.py
+│ (이미지 검사기) │  (학습된 모델 가중치(pt)를 로드하여 GUI 환경에서
+│                 │   이미지 결함 시각화, 확대/축소 및 검사 수행)
+└─────────────────┘
 ```
 
 ---
