@@ -114,12 +114,12 @@ def generate_predictions():
     
     notune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "notune" / "v8n_notune_721_5kfold_150epoch" / "weights" / f"best_fold_{i}.pt"
+        m_path = PROJECT_ROOT / "weights" / "notune_500epoch" / "weights" / f"best_fold_{i}.pt"
         notune_models.append(YOLO(str(m_path)))
 
     yestune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "yestune" / "weights" / f"best_fold_{i}.pt"
+        m_path = PROJECT_ROOT / "weights" / "yestune_500epoch" / "weights" / f"best_fold_{i}.pt"
         yestune_models.append(YOLO(str(m_path)))
         
     class_names = notune_models[0].names
