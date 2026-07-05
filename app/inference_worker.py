@@ -35,10 +35,15 @@ class InferenceWorker(QThread):
         self._models = []
         self._running = True
         self._class_names = {}
+        self._edited_images: dict = {}  # 편집된 이미지 캐시 (경로→ndarray)
 
     def set_image_paths(self, paths):
         """추론 대상 이미지 경로 리스트 설정."""
         self._image_paths = [str(p) for p in paths]
+
+    def set_edited_images(self, edited_images: dict):
+        """편집된 이미지 캐시를 설정. 해당 경로의 이미지는 디스크 대신 캐시에서 로드."""
+        self._edited_images = edited_images
 
     def stop(self):
         """워커 스레드 중단 요청."""
@@ -79,13 +84,17 @@ class InferenceWorker(QThread):
             if not self._running:
                 break
 
-            img = cv2.imread(img_path)
+            # 편집된 이미지가 캐시에 있으면 디스크 대신 사용
+            if img_path in self._edited_images:
+                img = self._edited_images[img_path].copy()
+            else:
+                img = cv2.imread(img_path)
             if img is None:
                 self.progress.emit(idx + 1, total)
                 continue
 
             h, w = img.shape[:2]
-            detections = self._ensemble_predict(img_path, w, h)
+            detections = self._ensemble_predict(img, w, h)
 
             # 각 결함의 썸네일 크롭 생성 (96×96, 메인 스레드에서 QPixmap 변환)
             crops = []
@@ -106,8 +115,12 @@ class InferenceWorker(QThread):
             # 원본 이미지 참조 해제 → GC 회수 유도
             del img
 
-    def _ensemble_predict(self, img_path, img_w, img_h):
-        """5개 모델 예측 → WBF 병합 → 최종 결함 리스트 반환."""
+    def _ensemble_predict(self, img_source, img_w, img_h):
+        """5개 모델 예측 → WBF 병합 → 최종 결함 리스트 반환.
+
+        Args:
+            img_source: 이미지 파일 경로(str) 또는 ndarray.
+        """
         from ensemble_boxes import weighted_boxes_fusion
 
         all_boxes_norm = []
@@ -116,7 +129,7 @@ class InferenceWorker(QThread):
 
         for model in self._models:
             res = model.predict(
-                img_path,
+                img_source,
                 conf=self._min_conf,
                 iou=self._iou_thresh,
                 verbose=False,
@@ -169,6 +182,83 @@ class InferenceWorker(QThread):
             })
 
         return detections
+
+    def run_single_image_sync(self, img: np.ndarray):
+        """메모리 내 ndarray 이미지 1장에 대해 동기 앙상블 추론 수행.
+
+        이미 로드된 모델을 재사용하므로 모델 로딩 지연이 없습니다.
+        F5 재연산 등 메인 스레드에서 호출합니다.
+
+        Returns:
+            dict: detections, crops 포함. detections가 없으면 빈 리스트.
+        """
+        from ensemble_boxes import weighted_boxes_fusion
+
+        h, w = img.shape[:2]
+
+        all_boxes_norm = []
+        all_scores = []
+        all_labels = []
+
+        for model in self._models:
+            res = model.predict(
+                img,
+                conf=self._min_conf,
+                iou=self._iou_thresh,
+                verbose=False,
+                device=self._device,
+            )[0]
+
+            if len(res.boxes) > 0:
+                boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
+                scores = res.boxes.conf.cpu().numpy().tolist()
+                labels = res.boxes.cls.cpu().numpy().astype(int).tolist()
+            else:
+                boxes_norm, scores, labels = [], [], []
+
+            all_boxes_norm.append(boxes_norm)
+            all_scores.append(scores)
+            all_labels.append(labels)
+
+        if not any(len(b) > 0 for b in all_boxes_norm):
+            return {"detections": [], "crops": []}
+
+        boxes_wbf, scores_wbf, labels_wbf = weighted_boxes_fusion(
+            all_boxes_norm,
+            all_scores,
+            all_labels,
+            weights=None,
+            iou_thr=self._iou_thresh,
+            skip_box_thr=self._min_conf,
+        )
+
+        detections = []
+        for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
+            conf_score = float(score)
+            if not (self._min_conf <= conf_score <= self._max_conf):
+                continue
+
+            x1n, y1n, x2n, y2n = box_n
+            cls_id = int(label)
+            detections.append({
+                "bbox_abs": [
+                    float(x1n * w),
+                    float(y1n * h),
+                    float(x2n * w),
+                    float(y2n * h),
+                ],
+                "bbox_norm": [float(x1n), float(y1n), float(x2n), float(y2n)],
+                "class_id": cls_id,
+                "class_name": self._class_names.get(cls_id, str(cls_id)),
+                "confidence": conf_score,
+            })
+
+        crops = []
+        for det in detections:
+            crop = self._compute_crop(img, det["bbox_abs"])
+            crops.append(crop)
+
+        return {"detections": detections, "crops": crops}
 
     def _compute_crop(self, img, bbox_abs):
         """결함 영역 + 패딩을 크롭하여 썸네일 크기로 리사이즈."""

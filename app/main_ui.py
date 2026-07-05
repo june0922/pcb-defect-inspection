@@ -156,6 +156,7 @@ class MainWindow(QMainWindow):
         self._worker: InferenceWorker | None = None
         
         self._current_folder = None
+        self._edited_images: dict[str, np.ndarray] = {}  # 편집된 이미지 캐시 (경로→ndarray)
         self._settings_file = Path(__file__).parent / "settings.json"
         self._app_settings = self._load_settings()
 
@@ -224,6 +225,7 @@ class MainWindow(QMainWindow):
         self._global_view.setFocusPolicy(Qt.NoFocus)
         self._global_pixmap_item = None
         self._crosshair_items: list = []
+        self._global_cursor_item = None  # GlobalView 브러쉬 커서 아이템
         self._h_splitter.addWidget(self._global_view)
 
         # Local View (Top-Right, 70%)
@@ -330,15 +332,15 @@ class MainWindow(QMainWindow):
                 if getattr(self, "_current_folder", None):
                     reply = QMessageBox.question(
                         self, "Settings Changed",
-                        "옵션이 변경되었습니다. 연결된 폴더에서 다시 연산을 해야 합니다.\n진행 중인 리뷰 내역은 초기화됩니다. 계속하시겠습니까?",
+                        "옵션이 변경되었습니다. 수정된 이미지를 반영하여 다시 연산합니다.\n진행 중인 리뷰 내역은 초기화됩니다. 계속하시겠습니까?",
                         QMessageBox.Yes | QMessageBox.No
                     )
                     if reply == QMessageBox.Yes:
                         self._app_settings = new_settings
                         self._save_settings(self._app_settings)
-                        # UI 강제 갱신 후 즉시 재연산 시작
+                        # UI 강제 갱신 후 즉시 재연산 (편집 이미지 보존)
                         QApplication.processEvents()
-                        self._start_inference(self._current_folder)
+                        self._start_inference(self._current_folder, preserve_edits=True)
                 else:
                     self._app_settings = new_settings
                     self._save_settings(self._app_settings)
@@ -397,6 +399,27 @@ class MainWindow(QMainWindow):
         self._shortcut_e = QShortcut(QKeySequence(Qt.Key_E), self)
         self._shortcut_e.activated.connect(lambda: self._local_view.zoom(zoom_in=True))
 
+        # F5 → 현재 이미지 재연산
+        self._shortcut_f5 = QShortcut(QKeySequence(Qt.Key_F5), self)
+        self._shortcut_f5.setAutoRepeat(False)
+        self._shortcut_f5.setContext(Qt.ApplicationShortcut)
+        self._shortcut_f5.activated.connect(self._rerun_inference_current_image)
+
+        # 브러쉬 크기 조절 (- / = 키) — VisionViewer가 NoFocus이므로 MainWindow QShortcut 사용
+        self._shortcut_brush_dec = QShortcut(QKeySequence(Qt.Key_Minus), self)
+        self._shortcut_brush_dec.setContext(Qt.ApplicationShortcut)
+        self._shortcut_brush_dec.activated.connect(self._decrease_brush_size)
+
+        self._shortcut_brush_inc = QShortcut(QKeySequence(Qt.Key_Equal), self)
+        self._shortcut_brush_inc.setContext(Qt.ApplicationShortcut)
+        self._shortcut_brush_inc.activated.connect(self._increase_brush_size)
+
+        # VisionViewer 시그널 구독
+        self._local_view.image_edited.connect(self._on_image_edited)
+        self._local_view.brush_size_changed.connect(self._on_brush_size_changed)
+        self._local_view.cursor_moved.connect(self._on_cursor_moved)
+        self._local_view.cursor_left.connect(self._on_cursor_left)
+
     # ── 추론 시작 ──────────────────────────────────────────────
 
     def _select_folder_and_start(self):
@@ -409,29 +432,41 @@ class MainWindow(QMainWindow):
                 "No folder selected. File > Open to start."
             )
             return
+
+        # 이미 작업 중인 폴더가 있으면 확인 다이얼로그 표시
+        if self._current_folder is not None:
+            reply = QMessageBox.question(
+                self, "Open New Folder",
+                "새 폴더를 열면 진행 중인 리뷰 내역이 초기화됩니다.\n계속하시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply != QMessageBox.Yes:
+                return
+
         self._start_inference(folder)
 
-    def _start_inference(self, folder):
+    def _start_inference(self, folder, preserve_edits=False):
         self._current_folder = folder
         
         # 기존 워커 정리 로직 (기존 워커가 모델 로딩 등 작업 중일 경우 대비)
         if self._worker and self._worker.isRunning():
             self._worker.stop()
-            # 신호 차단하여 기존 워커의 콜백(에러, 완료 등)이 더 이상 UI를 교란하지 않도록 함
-            try:
-                self._worker.disconnect()
-            except Exception:
-                pass
-            self._worker.wait(1000) # 1초만 대기 후 바로 진행 (응답 없는 스레드는 백그라운드에서 자연 종료되도록 둠)
+            # blockSignals로 큐에 남은 시그널 차단 (disconnect보다 안전)
+            self._worker.blockSignals(True)
+            self._worker.wait(2000)
+            self._worker = None
 
-        # 기존 데이터 초기화
+        # 기존 데이터 초기화 (편집 이미지는 preserve_edits에 따라 유지)
         self._defects.clear()
         self._filmstrip.clear()
         self._current_index = -1
         self._current_image = None
         self._current_image_path = None
+        if not preserve_edits:
+            self._edited_images.clear()
         self._global_scene.clear()
         self._global_pixmap_item = None
+        self._global_cursor_item = None
         self._crosshair_items.clear()
         self._local_view.clear_all()
 
@@ -472,6 +507,7 @@ class MainWindow(QMainWindow):
             device=device,
         )
         self._worker.set_image_paths(image_paths)
+        self._worker.set_edited_images(self._edited_images)
         self._worker.models_loaded.connect(self._on_models_loaded)
         self._worker.inference_done.connect(self._on_inference_done)
         self._worker.progress.connect(self._on_progress)
@@ -627,9 +663,15 @@ class MainWindow(QMainWindow):
 
         # 이미지 변경 시에만 재로드 (메모리 절약)
         if entry.image_path != self._current_image_path:
-            # 이전 이미지 참조 해제
-            self._current_image = None
-            self._current_image = cv2.imread(entry.image_path)
+            # 이전 이미지의 편집 내용을 캐시에 저장
+            if self._current_image is not None and self._current_image_path is not None:
+                self._edited_images[self._current_image_path] = self._current_image
+
+            # 편집된 이미지가 캐시에 있으면 디스크 대신 캐시에서 로드
+            if entry.image_path in self._edited_images:
+                self._current_image = self._edited_images[entry.image_path]
+            else:
+                self._current_image = cv2.imread(entry.image_path)
             self._current_image_path = entry.image_path
             self._update_global_view()
 
@@ -644,6 +686,7 @@ class MainWindow(QMainWindow):
 
         self._global_scene.clear()
         self._global_pixmap_item = None
+        self._global_cursor_item = None
         self._crosshair_items = []
 
         rgb = cv2.cvtColor(self._current_image, cv2.COLOR_BGR2RGB)
@@ -711,7 +754,7 @@ class MainWindow(QMainWindow):
         reviewed = sum(1 for d in self._defects if d.verdict != "pending")
         total = len(self._defects)
         passed = sum(1 for d in self._defects if d.verdict == "pass")
-        failed = sum(1 for d in self._defects if d.verdict == "fail")
+        failed = sum(1 for d in self._defects if d.verdict in [str(i) for i in range(1, 7)])
         current = self._current_index + 1 if self._current_index >= 0 else 0
         self._status_label.setText(
             f"[{current}/{total}]  "
@@ -839,6 +882,175 @@ class MainWindow(QMainWindow):
             json.dump(results, f, ensure_ascii=False, indent=2)
 
         self._status_label.setText(f"Results saved: {path}")
+
+    # ── 브러쉬 편집 시그널 처리 ─────────────────────────────────
+
+    @pyqtSlot(object)
+    def _on_image_edited(self, edited_image: np.ndarray):
+        """VisionViewer에서 브러쉬 편집 완료 시 호출.
+
+        편집된 이미지를 _current_image 및 캐시에 동기화하고,
+        현재 보고 있는 결함의 썸네일 크롭도 갱신합니다.
+        GlobalView도 실시간 반영합니다.
+        """
+        self._current_image = edited_image
+        if self._current_image_path:
+            self._edited_images[self._current_image_path] = edited_image
+
+        # 현재 결함의 크롭 재계산 (편집 결과가 크롭에도 반영)
+        if 0 <= self._current_index < len(self._defects):
+            entry = self._defects[self._current_index]
+            if self._worker:
+                new_crop = self._worker._compute_crop(
+                    edited_image, entry.detection["bbox_abs"]
+                )
+                entry.crop_bgr = new_crop
+                self._update_thumbnail_border(self._current_index)
+
+        # GlobalView 실시간 갱신
+        self._refresh_global_pixmap()
+
+    @pyqtSlot(int)
+    def _on_brush_size_changed(self, size: int):
+        """브러쉬 크기 변경 시 상태바에 표시."""
+        self._status_label.setText(f"Brush size: {size}px")
+
+    def _decrease_brush_size(self):
+        """브러쉬 크기 감소 (- 키)."""
+        view = self._local_view
+        view.set_brush_size(view._brush_size - 5)
+        self._status_label.setText(f"Brush size: {view._brush_size}px")
+
+    def _increase_brush_size(self):
+        """브러쉬 크기 증가 (= 키)."""
+        view = self._local_view
+        view.set_brush_size(view._brush_size + 5)
+        self._status_label.setText(f"Brush size: {view._brush_size}px")
+
+    @pyqtSlot(float, float)
+    def _on_cursor_moved(self, scene_x: float, scene_y: float):
+        """VisionViewer의 마우스 위치를 GlobalView에 반투명 원으로 동기화."""
+        r = self._local_view._brush_size / 2.0
+        # orphan 아이템 감지: scene.clear() 후 참조가 남아있으면 폐기
+        if self._global_cursor_item is not None and self._global_cursor_item.scene() is None:
+            self._global_cursor_item = None
+        if self._global_cursor_item is not None:
+            self._global_cursor_item.setRect(
+                scene_x - r, scene_y - r, r * 2, r * 2
+            )
+        else:
+            pen = QPen(QColor(0, 220, 255, 180), 1)
+            pen.setCosmetic(True)
+            brush = QBrush(QColor(0, 220, 255, 40))
+            self._global_cursor_item = self._global_scene.addEllipse(
+                scene_x - r, scene_y - r, r * 2, r * 2, pen, brush
+            )
+            self._global_cursor_item.setZValue(1000)
+
+    @pyqtSlot()
+    def _on_cursor_left(self):
+        """마우스가 VisionViewer를 떠나면 GlobalView 커서 제거."""
+        if self._global_cursor_item is not None:
+            # scene이 None이면 이미 clear()로 제거된 아이템이므로 참조만 해제
+            if self._global_cursor_item.scene() is not None:
+                self._global_scene.removeItem(self._global_cursor_item)
+            self._global_cursor_item = None
+
+    def _refresh_global_pixmap(self):
+        """편집 후 GlobalView의 배경 pixmap만 교체 (십자선 등은 유지)."""
+        if self._current_image is None or self._global_pixmap_item is None:
+            return
+        rgb = cv2.cvtColor(self._current_image, cv2.COLOR_BGR2RGB)
+        h, w, ch = rgb.shape
+        bpl = ch * w
+        qimg = QImage(rgb.data, w, h, bpl, QImage.Format_RGB888)
+        self._global_pixmap_item.setPixmap(QPixmap.fromImage(qimg.copy()))
+
+    def _rerun_inference_current_image(self):
+        """F5 키 → 현재 이미지(편집 반영)를 재연산하여 결함 목록 갱신.
+
+        기존 워커의 로드된 모델을 재사용하여 동기 추론을 수행합니다.
+        해당 이미지의 기존 결함 항목을 제거하고 새 결과로 교체합니다.
+        """
+        if self._current_image is None or self._current_image_path is None:
+            self._status_label.setText("No image loaded for re-inference.")
+            return
+
+        if not self._worker or not self._worker._models:
+            self._status_label.setText("Models not loaded. Cannot re-infer.")
+            return
+
+        self._status_label.setText("Re-running inference on edited image...")
+        QApplication.processEvents()
+
+        target_path = self._current_image_path
+
+        # 1. 해당 이미지의 기존 결함 인덱스 범위 파악
+        first_idx = None
+        last_idx = None
+        for i, d in enumerate(self._defects):
+            if d.image_path == target_path:
+                if first_idx is None:
+                    first_idx = i
+                last_idx = i
+
+        # 2. 동기 추론 수행
+        result = self._worker.run_single_image_sync(self._current_image)
+        new_detections = result["detections"]
+        new_crops = result["crops"]
+
+        # 3. 기존 결함 제거 및 새 결함 삽입
+        insert_pos = first_idx if first_idx is not None else len(self._defects)
+        remove_count = (last_idx - first_idx + 1) if first_idx is not None else 0
+
+        # 기존 항목 제거 (뒤에서부터 제거하여 인덱스 안정성 확보)
+        for i in range(remove_count):
+            del self._defects[insert_pos]
+            self._filmstrip.takeItem(insert_pos)
+
+        # 새 결함 삽입
+        for i, (det, crop_bgr) in enumerate(zip(new_detections, new_crops)):
+            pixmap = self._create_thumbnail(crop_bgr, BORDER_COLORS["pending"])
+            entry = DefectEntry(
+                defect_id=0,  # 아래에서 재번호 매김
+                image_path=target_path,
+                detection=det,
+                all_detections=new_detections,
+                detection_index=i,
+                crop_bgr=crop_bgr,
+                crop_pixmap=pixmap,
+            )
+            self._defects.insert(insert_pos + i, entry)
+
+            item = QListWidgetItem()
+            item.setIcon(QIcon(pixmap))
+            item.setSizeHint(QSize(THUMB_SIZE + 8, THUMB_SIZE + 8))
+            item.setToolTip(
+                f"{det['class_name']} ({det['confidence']:.2f})\n"
+                f"{Path(target_path).name}"
+            )
+            self._filmstrip.insertItem(insert_pos + i, item)
+
+        # 4. defect_id 재번호 매김 (전체 순서 정합성 보장)
+        for i, d in enumerate(self._defects):
+            d.defect_id = i
+
+        # 5. 뷰 갱신
+        new_count = len(new_detections)
+        if new_count > 0:
+            self._filmstrip.setCurrentRow(insert_pos)
+        elif len(self._defects) > 0:
+            safe_idx = min(insert_pos, len(self._defects) - 1)
+            self._filmstrip.setCurrentRow(safe_idx)
+        else:
+            self._current_index = -1
+            self._local_view.clear_all()
+            self._global_scene.clear()
+
+        self._update_status()
+        self._status_label.setText(
+            f"Re-inference complete. {new_count} defects found on this image."
+        )
 
     # ── 종료 처리 ──────────────────────────────────────────────
 
