@@ -17,7 +17,7 @@
 * **`run_app.bat` / `run_app.sh`**
   * 결함 검토 및 판정을 위한 GUI 리뷰 스테이션 프로그램(`app/run.py`)을 간편하게 실행합니다.
 * **`reset_to_main.bat` / `reset_to_main.sh`**
-  * (필요 시) Git 상태를 원격 저장소의 main 브랜치와 동일하게 초기화 및 동기화하는 스크립트입니다.
+  * (초기화) 내 PC의 로컬 폴더 상태를 Github의 main 브랜치와 동일하게 초기화 및 동기화하는 스크립트입니다.
 
 ## 실행 방법
 
