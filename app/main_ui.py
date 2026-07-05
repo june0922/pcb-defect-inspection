@@ -405,6 +405,11 @@ class MainWindow(QMainWindow):
         self._shortcut_f5.setContext(Qt.ApplicationShortcut)
         self._shortcut_f5.activated.connect(self._rerun_inference_current_image)
 
+        # Ctrl+S → 결과 저장
+        self._shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
+        self._shortcut_save.setContext(Qt.ApplicationShortcut)
+        self._shortcut_save.activated.connect(self._save_results)
+
         # 브러쉬 크기 조절 (- / = 키) — VisionViewer가 NoFocus이므로 MainWindow QShortcut 사용
         self._shortcut_brush_dec = QShortcut(QKeySequence(Qt.Key_Minus), self)
         self._shortcut_brush_dec.setContext(Qt.ApplicationShortcut)
@@ -811,32 +816,23 @@ class MainWindow(QMainWindow):
                 self._filmstrip.setCurrentRow(i)
                 return
 
-        # 래핑: 처음부터 재탐색
-        for i in range(0, start):
-            if self._defects[i].verdict == "pending":
-                self._filmstrip.setCurrentRow(i)
-                return
-
-        # 모든 결함 리뷰 완료
-        self._show_completion_summary()
+        # 모든 결함 리뷰 완료 시 팝업 띄우던 로직 제거 -> 사용자가 직접 Ctrl+S로 저장
 
     def _navigate_previous(self):
-        """이전 결함으로 수동 이동."""
+        """이전 결함으로 수동 이동 (래핑 안함)."""
         if not self._defects:
             return
         idx = self._current_index - 1
-        if idx < 0:
-            idx = len(self._defects) - 1
-        self._filmstrip.setCurrentRow(idx)
+        if idx >= 0:
+            self._filmstrip.setCurrentRow(idx)
 
     def _navigate_next(self):
-        """다음 결함으로 수동 이동."""
+        """다음 결함으로 수동 이동 (래핑 안함)."""
         if not self._defects:
             return
         idx = self._current_index + 1
-        if idx >= len(self._defects):
-            idx = 0
-        self._filmstrip.setCurrentRow(idx)
+        if idx < len(self._defects):
+            self._filmstrip.setCurrentRow(idx)
 
     def _show_completion_summary(self):
         passed = sum(1 for d in self._defects if d.verdict == "pass")

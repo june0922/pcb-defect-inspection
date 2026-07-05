@@ -98,6 +98,8 @@ class VisionViewer(QGraphicsView):
 
         self._pixmap_item = None
         self._overlay_items = []
+        self._highlighted_overlay_items = []
+        self._other_overlay_items = []
         self._overlay_visible = True
         self._zoom_factor = 1.15
         self._min_zoom = 0.1      # 최소 10% 축소 허용
@@ -150,6 +152,8 @@ class VisionViewer(QGraphicsView):
             highlight_index: 강조 표시할 결함 인덱스 (더 두꺼운 선).
         """
         self._clear_overlay()
+        self._highlighted_overlay_items = []
+        self._other_overlay_items = []
 
         for i, det in enumerate(detections):
             x1, y1, x2, y2 = det["bbox_abs"]
@@ -157,26 +161,34 @@ class VisionViewer(QGraphicsView):
             cls_name = det["class_name"]
             color = confidence_color(conf)
 
-            thickness = 3.0 if i == highlight_index else 2.0
+            is_highlighted = (i == highlight_index)
+            thickness = 3.0 if is_highlighted else 2.0
 
             bracket_items = self._draw_corner_brackets(
                 x1, y1, x2, y2, color, thickness
             )
-            self._overlay_items.extend(bracket_items)
 
             label_text = f"{cls_name} {conf:.2f}"
             label_item = DefectLabel(label_text, color)
             label_item.setPos(x1, y1 - 2)
             self._scene.addItem(label_item)
-            self._overlay_items.append(label_item)
+            
+            items_for_this_defect = bracket_items + [label_item]
+            self._overlay_items.extend(items_for_this_defect)
+            
+            if is_highlighted:
+                self._highlighted_overlay_items.extend(items_for_this_defect)
+            else:
+                self._other_overlay_items.extend(items_for_this_defect)
 
-        for item in self._overlay_items:
-            item.setVisible(self._overlay_visible)
+        self.set_overlay_visible(self._overlay_visible)
 
     def set_overlay_visible(self, visible: bool):
-        """Shift 홀드 시 오버레이(브라켓+라벨) 숨김/표시 토글."""
+        """Shift 홀드 시 오버레이 숨김 토글 (강조된 결함은 항상 표시)."""
         self._overlay_visible = visible
-        for item in self._overlay_items:
+        for item in self._highlighted_overlay_items:
+            item.setVisible(True)
+        for item in self._other_overlay_items:
             item.setVisible(visible)
 
     def zoom_to_rect(self, x1, y1, x2, y2, pad_ratio=0.5):
@@ -195,6 +207,8 @@ class VisionViewer(QGraphicsView):
         self._scene.clear()
         self._pixmap_item = None
         self._overlay_items = []
+        self._highlighted_overlay_items = []
+        self._other_overlay_items = []
         self._cv_image = None
         self._cursor_item = None
 
@@ -335,6 +349,8 @@ class VisionViewer(QGraphicsView):
         for item in self._overlay_items:
             self._scene.removeItem(item)
         self._overlay_items = []
+        self._highlighted_overlay_items = []
+        self._other_overlay_items = []
 
     # ── Event Handlers ─────────────────────────────────────────
 
@@ -367,6 +383,7 @@ class VisionViewer(QGraphicsView):
             self._panning = True
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
+            self._remove_cursor_item()  # 우클릭 패닝 시작 시 커서 프리뷰 숨김(잔상 방지)
             event.accept()
         else:
             super().mousePressEvent(event)

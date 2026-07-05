@@ -261,7 +261,8 @@ class InferenceWorker(QThread):
         return {"detections": detections, "crops": crops}
 
     def _compute_crop(self, img, bbox_abs):
-        """결함 영역 + 패딩을 크롭하여 썸네일 크기로 리사이즈."""
+        """결함 영역 + 패딩을 크롭하여 썸네일 크기로 리사이즈하되,
+        비율을 유지하며 정사각형으로 패딩하여 왜곡을 방지합니다."""
         x1, y1, x2, y2 = bbox_abs
         h, w = img.shape[:2]
         bw, bh = x2 - x1, y2 - y1
@@ -279,8 +280,22 @@ class InferenceWorker(QThread):
                 (self.THUMB_SIZE, self.THUMB_SIZE, 3), dtype=np.uint8
             )
 
+        # 찌그러짐 방지: 정사각형으로 패딩 추가
+        ch, cw = crop.shape[:2]
+        max_side = max(ch, cw)
+        
+        top = (max_side - ch) // 2
+        bottom = max_side - ch - top
+        left = (max_side - cw) // 2
+        right = max_side - cw - left
+        
+        square_crop = cv2.copyMakeBorder(
+            crop, top, bottom, left, right, 
+            cv2.BORDER_CONSTANT, value=[128, 128, 128]
+        )
+
         return cv2.resize(
-            crop,
+            square_crop,
             (self.THUMB_SIZE, self.THUMB_SIZE),
             interpolation=cv2.INTER_AREA,
         )
