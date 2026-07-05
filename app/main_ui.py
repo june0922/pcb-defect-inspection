@@ -405,10 +405,6 @@ class MainWindow(QMainWindow):
         self._shortcut_f5.setContext(Qt.ApplicationShortcut)
         self._shortcut_f5.activated.connect(self._rerun_inference_current_image)
 
-        # Ctrl+S → 결과 저장
-        self._shortcut_save = QShortcut(QKeySequence("Ctrl+S"), self)
-        self._shortcut_save.setContext(Qt.ApplicationShortcut)
-        self._shortcut_save.activated.connect(self._save_results)
 
         # 브러쉬 크기 조절 (- / = 키) — VisionViewer가 NoFocus이므로 MainWindow QShortcut 사용
         self._shortcut_brush_dec = QShortcut(QKeySequence(Qt.Key_Minus), self)
