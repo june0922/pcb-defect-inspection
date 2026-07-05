@@ -41,13 +41,18 @@ class DefectEntry:
     detection_index: int       # all_detections 내 인덱스
     crop_bgr: np.ndarray = field(default=None, repr=False)
     crop_pixmap: QPixmap = field(default=None, repr=False)
-    verdict: str = "pending"   # "pending" | "pass" | "fail"
+    verdict: str = "pending"   # "pending" | "pass" | "1"~"6"
 
 
 BORDER_COLORS = {
     "pending": QColor(128, 128, 128),
     "pass":    QColor(0, 200, 0),
-    "fail":    QColor(255, 50, 50),
+    "1":       QColor(255, 50, 50),
+    "2":       QColor(255, 50, 50),
+    "3":       QColor(255, 50, 50),
+    "4":       QColor(255, 50, 50),
+    "5":       QColor(255, 50, 50),
+    "6":       QColor(255, 50, 50),
 }
 
 THUMB_SIZE = 96
@@ -344,17 +349,24 @@ class MainWindow(QMainWindow):
         # 단축키 설정 (위젯 포커스 무관하게 전역 동작하도록 QShortcut 사용)
         self._shortcut_pass = QShortcut(QKeySequence(Qt.Key_Space), self)
         self._shortcut_pass.setAutoRepeat(False)
+        self._shortcut_pass.setContext(Qt.ApplicationShortcut)
         self._shortcut_pass.activated.connect(lambda: self._verdict_current("pass"))
 
-        self._shortcut_fail = QShortcut(QKeySequence(Qt.Key_F), self)
-        self._shortcut_fail.setAutoRepeat(False)
-        self._shortcut_fail.activated.connect(lambda: self._verdict_current("fail"))
+        self._shortcuts_defect = []
+        for i, key in enumerate([Qt.Key_1, Qt.Key_2, Qt.Key_3, Qt.Key_4, Qt.Key_5, Qt.Key_6], start=1):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.setAutoRepeat(False)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(lambda val=str(i): self._verdict_current(val))
+            self._shortcuts_defect.append(sc)
 
         # 좌우 화살표 (이전/다음 결함 순차 이동)
         self._shortcut_prev = QShortcut(QKeySequence(Qt.Key_Left), self)
+        self._shortcut_prev.setContext(Qt.ApplicationShortcut)
         self._shortcut_prev.activated.connect(self._navigate_previous)
 
         self._shortcut_next = QShortcut(QKeySequence(Qt.Key_Right), self)
+        self._shortcut_next.setContext(Qt.ApplicationShortcut)
         self._shortcut_next.activated.connect(self._navigate_next)
 
         # 상하 화살표는 스크롤 기본 동작을 방지하기 위해 무시 (아무 동작도 하지 않음)
@@ -529,7 +541,7 @@ class MainWindow(QMainWindow):
             self._progress_bar.setVisible(False)
             self._status_label.setText(
                 f"Inference complete. {n_defects} defects found. "
-                f"Space=Pass / F=Fail / Shift=Hide overlay"
+                f"Space=Pass / 1~6=Fail / Shift=Hide overlay"
             )
 
     @pyqtSlot(str)
@@ -539,7 +551,7 @@ class MainWindow(QMainWindow):
 
     # ── 썸네일 생성/갱신 ───────────────────────────────────────
 
-    def _create_thumbnail(self, crop_bgr, border_color):
+    def _create_thumbnail(self, crop_bgr, border_color, verdict="pending"):
         """BGR numpy 크롭 → 테두리 포함 QPixmap 변환."""
         rgb = cv2.cvtColor(crop_bgr, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -548,6 +560,13 @@ class MainWindow(QMainWindow):
         pixmap = QPixmap.fromImage(qimg.copy())
 
         painter = QPainter(pixmap)
+        
+        # 반투명 오버레이
+        if verdict != "pending":
+            overlay_color = QColor(border_color)
+            overlay_color.setAlpha(64)
+            painter.fillRect(0, 0, pixmap.width(), pixmap.height(), overlay_color)
+
         pen = QPen(border_color, BORDER_WIDTH)
         painter.setPen(pen)
         half = BORDER_WIDTH // 2
@@ -556,6 +575,30 @@ class MainWindow(QMainWindow):
             pixmap.width() - BORDER_WIDTH,
             pixmap.height() - BORDER_WIDTH,
         )
+
+        # 텍스트(숫자) 뱃지 추가 (PASS는 텍스트 생략)
+        if verdict != "pending" and verdict != "pass":
+            # 우측 상단에 뱃지 배경 그리기
+            badge_size = 26
+            badge_margin = 6
+            x = pixmap.width() - badge_size - badge_margin
+            y = badge_margin
+            
+            painter.setPen(Qt.NoPen)
+            # 테두리 색상을 불투명하게 사용하여 뱃지 배경색으로 활용
+            badge_bg = QColor(border_color)
+            badge_bg.setAlpha(230)
+            painter.setBrush(badge_bg)
+            painter.drawRoundedRect(x, y, badge_size, badge_size, 6, 6)
+            
+            # 뱃지 중앙에 텍스트 그리기
+            painter.setPen(QPen(Qt.white))
+            font = painter.font()
+            font.setPointSize(14)
+            font.setBold(True)
+            painter.setFont(font)
+            painter.drawText(QRectF(x, y, badge_size, badge_size), Qt.AlignCenter, verdict)
+
         painter.end()
         return pixmap
 
@@ -564,8 +607,8 @@ class MainWindow(QMainWindow):
         if not (0 <= index < len(self._defects)):
             return
         entry = self._defects[index]
-        color = BORDER_COLORS[entry.verdict]
-        new_pixmap = self._create_thumbnail(entry.crop_bgr, color)
+        color = BORDER_COLORS.get(entry.verdict, BORDER_COLORS["pending"])
+        new_pixmap = self._create_thumbnail(entry.crop_bgr, color, entry.verdict)
         entry.crop_pixmap = new_pixmap
         item = self._filmstrip.item(index)
         if item:
@@ -754,7 +797,7 @@ class MainWindow(QMainWindow):
 
     def _show_completion_summary(self):
         passed = sum(1 for d in self._defects if d.verdict == "pass")
-        failed = sum(1 for d in self._defects if d.verdict == "fail")
+        failed = sum(1 for d in self._defects if d.verdict in [str(i) for i in range(1, 7)])
         total = len(self._defects)
 
         msg = (
