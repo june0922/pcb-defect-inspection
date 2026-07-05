@@ -68,7 +68,7 @@ def main(config_path: str = "config.yaml") -> None:
     data_yaml = build_data_yaml(paths["processed"])
 
     # 모델 초기화 (PROJECT_ROOT 기준 절대 경로로 변환)
-    model_path = PROJECT_ROOT / tc.get("model", "weights/yolov8n.pt")
+    model_path = PROJECT_ROOT / tc.get("model", "weights/yolov8s.pt")
     model = YOLO(str(model_path))
 
     # 이어하기(resume) 여부 자동 감지

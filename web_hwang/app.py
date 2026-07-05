@@ -39,12 +39,12 @@ SAMPLES_DIR = WEB_DIR / "samples"
 BOARDS_DIR  = SAMPLES_DIR / "boards"
 STATIC_DIR  = WEB_DIR / "static"
 
-# TODO(실제연결): 학습 완료 후 'yolov8n.pt' 를 지우고 best.pt 경로를 최우선으로 사용
+# TODO(실제연결): 학습 완료 후 'yolov8s.pt' 를 지우고 best.pt 경로를 최우선으로 사용
 BEST_MODEL_PATHS = [
     WEB_DIR / "best.pt",
     REPO_ROOT / "weights" / "best.pt",
 ]
-FALLBACK_MODEL = "yolov8n.pt"
+FALLBACK_MODEL = "yolov8s.pt"
  
 # ---------------------------------------------------------------------------
 # src 모듈 로드
@@ -85,7 +85,7 @@ def _find_model():
     for p in BEST_MODEL_PATHS:
         if p.exists():
             return str(p)
-    # best.pt 없으면 yolov8n.pt 로 폴백 (ultralytics 가 자동 다운로드)
+    # best.pt 없으면 yolov8s.pt 로 폴백 (ultralytics 가 자동 다운로드)
     print(f"[startup] best.pt 없음 → {FALLBACK_MODEL} 사용 (추론 전용)")
     return FALLBACK_MODEL
 

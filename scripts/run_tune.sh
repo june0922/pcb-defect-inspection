@@ -40,8 +40,8 @@ if [ ! -d "preprocessed_data/images/train" ]; then
 fi
 
 # --- Guard: check model weights exist ---
-if [ ! -f "weights/yolov8n.pt" ]; then
-    echo "[Warning] weights/yolov8n.pt not found."
+if [ ! -f "weights/yolov8s.pt" ]; then
+    echo "[Warning] weights/yolov8s.pt not found."
     echo "          Make sure the base model weight file exists before tuning."
     echo ""
 fi

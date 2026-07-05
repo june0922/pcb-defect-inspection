@@ -43,8 +43,8 @@ if not exist "preprocessed_data\images\train" (
 )
 
 :: --- Guard: check model weights exist ---
-if not exist "weights\yolov8n.pt" (
-    echo [Warning] weights\yolov8n.pt not found.
+if not exist "weights\yolov8s.pt" (
+    echo [Warning] weights\yolov8s.pt not found.
     echo           Make sure the base model weight file exists before tuning.
     echo.
 )
