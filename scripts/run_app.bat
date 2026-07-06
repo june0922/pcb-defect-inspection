@@ -16,7 +16,7 @@ echo.
 echo [INFO] Starting review station...
 echo.
 
-python app/run.py
+python app_back/run.py
 if errorlevel 1 (
     echo.
     echo [ERROR] Application exited with error code %errorlevel%.

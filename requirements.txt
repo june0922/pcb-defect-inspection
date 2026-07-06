@@ -14,5 +14,5 @@ python-multipart
 ensemble-boxes
 torchmetrics
 
-# 리뷰 스테이션 (app/)
+# 리뷰 스테이션 (app_back/)
 PyQt5>=5.15.0

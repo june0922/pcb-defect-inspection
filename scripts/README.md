@@ -15,7 +15,7 @@
 * **`run_tune.bat` / `run_tune.sh`**
   * 모델 성능 최적화를 위한 하이퍼파라미터 튜닝(`src/tune.py`)을 수행합니다.
 * **`run_app.bat` / `run_app.sh`**
-  * 결함 검토 및 판정을 위한 GUI 리뷰 스테이션 프로그램(`app/run.py`)을 간편하게 실행합니다.
+  * 결함 검토 및 판정을 위한 GUI 리뷰 스테이션 프로그램(`app_back/run.py`)을 간편하게 실행합니다.
 * **`reset_to_main.bat` / `reset_to_main.sh`**
   * (초기화) 내 PC의 로컬 폴더 상태를 Github의 main 브랜치와 동일하게 초기화 및 동기화하는 스크립트입니다.
 
