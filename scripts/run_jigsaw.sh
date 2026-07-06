@@ -7,7 +7,7 @@ echo "========================================"
 
 if [ -z "$1" ]; then
     TARGET_GROUP="all"
-    echo "No group specified, defaulting to 'all' (processes all groups)"
+    echo "No group specified, defaulting to all"
 else
     TARGET_GROUP="$1"
     echo "Target group: $1"
