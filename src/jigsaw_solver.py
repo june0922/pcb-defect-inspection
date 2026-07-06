@@ -176,7 +176,10 @@ def solve_group(group_name, args, project_root):
             test_file = temp_file.replace('_temp.jpg', '_test.jpg')
             
             im_temp = Image.open(temp_file)
-            im_test = Image.open(test_file)
+            if os.path.exists(test_file):
+                im_test = Image.open(test_file)
+            else:
+                im_test = im_temp
             
             paste_x = x * img_width
             paste_y = y * img_height
