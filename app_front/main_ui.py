@@ -318,6 +318,7 @@ class MainWindow(QMainWindow):
         self._h_splitter.setStretchFactor(1, 7)
         self._h_splitter.setCollapsible(0, False)
         self._h_splitter.setCollapsible(1, False)
+        self._h_splitter.setSizes([300, 700])
 
         # ── 하단: FilmStrip ──
         self._filmstrip = QListWidget()
