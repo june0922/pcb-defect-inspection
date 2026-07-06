@@ -5,6 +5,11 @@ title Data Preprocessing
 :: Change working directory to the project root
 cd /d "%~dp0.."
 
+:: Activate virtual environment if it exists
+if exist "%~dp0..\venv\Scripts\activate.bat" (
+    call "%~dp0..\venv\Scripts\activate.bat"
+)
+
 echo ========================================================
 echo Current Directory: %CD%
 echo ========================================================
