@@ -152,8 +152,8 @@ def render_canvas(cluster_nodes, X, Y, image_loader):
     cw = int(np.ceil(X.max())) + IMG_SIZE
     ch = int(np.ceil(Y.max())) + IMG_SIZE
 
-    canvas_sum = np.zeros((ch, cw, 3), dtype=np.float32)
-    canvas_cnt = np.zeros((ch, cw, 1), dtype=np.float32)
+    # 배경을 흰색(255)으로 초기화
+    canvas = np.full((ch, cw, 3), 255, dtype=np.uint8)
 
     for idx, node in enumerate(cluster_nodes):
         x = int(round(X[idx]))
@@ -161,12 +161,13 @@ def render_canvas(cluster_nodes, X, Y, image_loader):
         img = image_loader(node)
         if img is None:
             continue
-        canvas_sum[y:y + IMG_SIZE, x:x + IMG_SIZE] += img.astype(np.float32)
-        canvas_cnt[y:y + IMG_SIZE, x:x + IMG_SIZE] += 1
+        
+        patch = canvas[y:y + IMG_SIZE, x:x + IMG_SIZE]
+        # 회색 잔상을 방지하기 위해 평균 블렌딩 대신 어두운 픽셀(패턴)을 우선하는 np.minimum 사용
+        # (좌표 버그가 해결되었으므로 검은 덩어리 현상이 발생하지 않음)
+        canvas[y:y + IMG_SIZE, x:x + IMG_SIZE] = np.minimum(patch, img)
 
-    safe_cnt = np.maximum(canvas_cnt, 1)
-    result = np.where(canvas_cnt > 0, canvas_sum / safe_cnt, 255)
-    return np.clip(result, 0, 255).astype(np.uint8), cw, ch
+    return canvas, cw, ch
 
 
 def solve_group(group_dir, group_name, out_dir):
