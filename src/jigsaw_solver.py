@@ -6,6 +6,8 @@ from PIL import Image
 import json
 import argparse
 import sys
+import time
+import datetime
 
 def get_edges(img_array):
     """Extract top, right, bottom, left edges from a grayscale image array."""
@@ -20,7 +22,7 @@ def solve_group(group_name, args, project_root):
     
     if not os.path.exists(group_dir):
         print(f"Directory not found: {group_dir}")
-        return
+        return 0
 
     out_dir = os.path.join(project_root, args.output_dir)
     os.makedirs(out_dir, exist_ok=True)
@@ -28,7 +30,7 @@ def solve_group(group_name, args, project_root):
     temp_files = sorted(glob.glob(os.path.join(group_dir, '*_temp.jpg')))
     if not temp_files:
         print(f"No _temp.jpg files found in {group_dir}")
-        return
+        return 0
 
     print(f"\n{'='*50}")
     print(f"Processing {group_name} ({len(temp_files)} images)...")
@@ -157,11 +159,18 @@ def solve_group(group_name, args, project_root):
         for (x, y), node in normalized_cluster.items():
             temp_file = temp_files[node]
             test_file = temp_file.replace('_temp.jpg', '_test.jpg')
+            
+            # Check if test_file really exists, otherwise mark as null in json
+            if not os.path.exists(test_file):
+                test_file_name = None
+            else:
+                test_file_name = os.path.basename(test_file)
+                
             layout_data.append({
                 'grid_x': x,
                 'grid_y': y,
                 'temp_file': os.path.basename(temp_file),
-                'test_file': os.path.basename(test_file)
+                'test_file': test_file_name
             })
             
         layout_path = os.path.join(out_dir, f"{group_name}_cluster_{c_idx:02d}_layout.json")
@@ -169,29 +178,35 @@ def solve_group(group_name, args, project_root):
             json.dump(layout_data, f, indent=4)
             
         canvas_temp = Image.new('RGB', (cols * img_width, rows * img_height))
-        canvas_test = Image.new('RGB', (cols * img_width, rows * img_height))
+        # Defect image canvas is initialized black. We do not mix with temp images.
+        canvas_test = Image.new('RGB', (cols * img_width, rows * img_height), (0, 0, 0))
         
         for (x, y), node in normalized_cluster.items():
             temp_file = temp_files[node]
             test_file = temp_file.replace('_temp.jpg', '_test.jpg')
             
             im_temp = Image.open(temp_file)
-            if os.path.exists(test_file):
-                im_test = Image.open(test_file)
-            else:
-                im_test = im_temp
             
             paste_x = x * img_width
             paste_y = y * img_height
             
             canvas_temp.paste(im_temp, (paste_x, paste_y))
-            canvas_test.paste(im_test, (paste_x, paste_y))
+            
+            # Paste test image ONLY if it exists to strictly prevent mixing with temp image
+            if os.path.exists(test_file):
+                im_test = Image.open(test_file)
+                canvas_test.paste(im_test, (paste_x, paste_y))
             
         out_temp_path = os.path.join(out_dir, f"{group_name}_cluster_{c_idx:02d}_temp_normal.jpg")
         out_test_path = os.path.join(out_dir, f"{group_name}_cluster_{c_idx:02d}_test_defect.jpg")
         
         canvas_temp.save(out_temp_path, quality=95)
         canvas_test.save(out_test_path, quality=95)
+        
+    return n
+
+def format_time(seconds):
+    return str(datetime.timedelta(seconds=int(seconds)))
 
 def main():
     parser = argparse.ArgumentParser(description="DeepPCB Jigsaw Solver")
@@ -203,6 +218,8 @@ def main():
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 
+    start_time = time.time()
+    
     if args.group == 'all':
         dataset_path = os.path.join(project_root, args.dataset_dir)
         group_dirs = sorted([d for d in os.listdir(dataset_path) if d.startswith('group') and os.path.isdir(os.path.join(dataset_path, d))])
@@ -211,11 +228,32 @@ def main():
             print(f"No group directories found in {dataset_path}")
             sys.exit(1)
             
-        print(f"Found {len(group_dirs)} groups to process.")
+        # Calculate total images for ETA prediction
+        total_images = 0
         for g in group_dirs:
-            solve_group(g, args, project_root)
+            g_dir = os.path.join(dataset_path, g, g.replace('group', ''))
+            total_images += len(glob.glob(os.path.join(g_dir, '*_temp.jpg')))
+            
+        print(f"Found {len(group_dirs)} groups with a total of {total_images} images to process.")
+        
+        processed_images = 0
+        for g in group_dirs:
+            count = solve_group(g, args, project_root)
+            processed_images += count
+            
+            elapsed = time.time() - start_time
+            if processed_images > 0 and processed_images < total_images:
+                time_per_image = elapsed / processed_images
+                remaining_images = total_images - processed_images
+                eta_seconds = time_per_image * remaining_images
+                print(f"\n---> [Progress] {processed_images}/{total_images} images processed ({(processed_images/total_images)*100:.1f}%)")
+                print(f"---> [Time Elapsed] {format_time(elapsed)}")
+                print(f"---> [ETA Remaining] {format_time(eta_seconds)}")
+                
     else:
         solve_group(args.group, args, project_root)
+        elapsed = time.time() - start_time
+        print(f"\n---> [Time Elapsed] {format_time(elapsed)}")
         
     print("\nAll operations completed successfully!")
 
