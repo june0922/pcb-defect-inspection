@@ -67,7 +67,7 @@ function updateView() {
     
     // Force image reload cleanly to avoid flickering if possible
     DOM.notuneImg.src = `results/patience15_old/${imgName}`;
-    DOM.yestuneImg.src = `results/patience15_new/${imgName}`;
+    DOM.yestuneImg.src = `results/patience100_new/${imgName}`;
 }
 
 // Navigation
