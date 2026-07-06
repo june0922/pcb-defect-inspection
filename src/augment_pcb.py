@@ -25,8 +25,8 @@ def apply_color_mapping(binary_img):
     else:
         c_color = (0, 215, 255)
 
-    colored[binary_img == 0] = bg_color
-    colored[binary_img == 255] = c_color
+    colored[binary_img == 0] = c_color
+    colored[binary_img == 255] = bg_color
     return colored
 
 def add_noise_and_texture(img):
