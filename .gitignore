@@ -37,3 +37,7 @@ env/
 # Windows
 Thumbs.db
 desktop.ini
+
+# App Front
+app_front/settings.json
+app_front/inspection_log_*.json
