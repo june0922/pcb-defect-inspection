@@ -42,6 +42,18 @@ if errorlevel 1 (
 
 echo.
 echo ========================================================
+echo Running Image Merge...
+echo ========================================================
+python src\merge_images.py
+if errorlevel 1 (
+    echo.
+    echo [Error] Image Merge failed.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================================
 echo Preprocessing Execution Finished.
 echo ========================================================
 pause

@@ -39,6 +39,17 @@ fi
 
 echo ""
 echo "========================================================"
+echo "Running Image Merge..."
+echo "========================================================"
+python src/merge_images.py
+if [ $? -ne 0 ]; then
+    echo ""
+    echo "[Error] Image Merge failed."
+    exit 1
+fi
+
+echo ""
+echo "========================================================"
 echo "Preprocessing Execution Finished."
 echo "========================================================"
 exit 0
