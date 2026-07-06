@@ -38,14 +38,20 @@ if [ $? -ne 0 ]; then
 fi
 
 echo ""
-echo "========================================================"
-echo "Running Image Merge..."
-echo "========================================================"
-python src/merge_images.py
-if [ $? -ne 0 ]; then
+read -p "Proceed with Image Merge? (Y/N, default is N): " run_merge
+if [[ ! "$run_merge" =~ ^[Yy]$ ]]; then
+    echo "Image Merge cancelled by user."
+else
     echo ""
-    echo "[Error] Image Merge failed."
-    exit 1
+    echo "========================================================"
+    echo "Running Image Merge..."
+    echo "========================================================"
+    python src/merge_images.py
+    if [ $? -ne 0 ]; then
+        echo ""
+        echo "[Error] Image Merge failed."
+        exit 1
+    fi
 fi
 
 echo ""

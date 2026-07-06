@@ -41,6 +41,13 @@ if errorlevel 1 (
 )
 
 echo.
+set /p run_merge="Proceed with Image Merge? (Y/N, default is N): "
+if /I not "%run_merge%"=="Y" (
+    echo Image Merge cancelled by user.
+    goto skip_merge
+)
+
+echo.
 echo ========================================================
 echo Running Image Merge...
 echo ========================================================
@@ -52,6 +59,7 @@ if errorlevel 1 (
     exit /b 1
 )
 
+:skip_merge
 echo.
 echo ========================================================
 echo Preprocessing Execution Finished.
