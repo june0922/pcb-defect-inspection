@@ -5,6 +5,11 @@ title YOLOv8 Hyperparameter Tuning
 :: Change working directory to the project root
 cd /d "%~dp0.."
 
+:: Activate virtual environment if it exists
+if exist "%~dp0..\venv\Scripts\activate.bat" (
+    call "%~dp0..\venv\Scripts\activate.bat"
+)
+
 echo ========================================================
 echo  YOLOv8 Hyperparameter Tuning
 echo  Current Directory: %CD%
