@@ -30,7 +30,7 @@ if exist preprocessed_data rmdir /s /q preprocessed_data 2>nul
 if exist dataset rmdir /s /q dataset 2>nul
 if exist venv rmdir /s /q venv 2>nul
 if exist src\__pycache__ rmdir /s /q src\__pycache__ 2>nul
-if exist app\__pycache__ rmdir /s /q app\__pycache__ 2>nul
+if exist app_back\__pycache__ rmdir /s /q app_back\__pycache__ 2>nul
 if exist web_hwang\__pycache__ rmdir /s /q web_hwang\__pycache__ 2>nul
 if exist web_test\preprocessed_data rmdir /s /q web_test\preprocessed_data 2>nul
 if exist web_test\results rmdir /s /q web_test\results 2>nul

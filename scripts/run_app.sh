@@ -14,7 +14,7 @@ echo
 echo "[INFO] Starting review station..."
 echo
 
-python app/run.py
+python app_back/run.py
 if [ $? -ne 0 ]; then
     echo
     echo "[ERROR] Application exited with error."

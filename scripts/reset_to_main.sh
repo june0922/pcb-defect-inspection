@@ -22,7 +22,7 @@ echo "Resetting to the latest origin/main..."
 # Force delete untracked large directories to prevent issues
 # This is done BEFORE git reset --hard so any accidentally deleted tracked files are restored.
 rm -rf preprocessed_data dataset 2>/dev/null
-rm -rf venv src/__pycache__ app/__pycache__ 2>/dev/null
+rm -rf venv src/__pycache__ app_back/__pycache__ 2>/dev/null
 rm -rf web_hwang/__pycache__ 2>/dev/null
 rm -rf web_test/preprocessed_data web_test/results web_test/runs web_test/weights 2>/dev/null
 
