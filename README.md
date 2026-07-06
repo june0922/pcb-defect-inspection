@@ -1,4 +1,5 @@
 # YOLOv8 기반 PCB 결함 탐지 및 Review Station 시스템
+<img width="6400" height="6400" alt="merged_group20085_10x10_03_colored" src="https://github.com/user-attachments/assets/3657b2cc-62bc-49dd-a981-aafe2c73e440" />
 
 YOLOv8 5-Fold 앙상블 모델을 통해 PCB(인쇄회로기판) 표면 결함을 고정밀로 탐지하고, 최종적으로 작업자가 데스크톱 GUI(Review Station)를 통해 빠르고 직관적으로 결함을 검토하고 판정할 수 있도록 돕는 통합 시스템입니다.
 
