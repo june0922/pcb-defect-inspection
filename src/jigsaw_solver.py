@@ -9,12 +9,23 @@ import sys
 import time
 import datetime
 
-def get_edges(img_array):
-    """Extract top, right, bottom, left edges from a grayscale image array."""
-    top = img_array[0, :].astype(float)
-    right = img_array[:, -1].astype(float)
-    bottom = img_array[-1, :].astype(float)
-    left = img_array[:, 0].astype(float)
+def get_edges(img_array, depth):
+    """
+    Extract top, right, bottom, left edges from an image array.
+    img_array shape: (H, W, C)
+    """
+    # top matches bottom. We flip top vertically so index 0 is the exact boundary
+    top = img_array[:depth, :, :].astype(float)
+    top = top[::-1, :, :]
+    
+    right = img_array[:, -depth:, :].astype(float)
+    
+    bottom = img_array[-depth:, :, :].astype(float)
+    
+    # left matches right. We flip left horizontally so index 0 is the exact boundary
+    left = img_array[:, :depth, :].astype(float)
+    left = left[:, ::-1, :]
+    
     return top, right, bottom, left
 
 def solve_files(temp_files, output_prefix, args, project_root):
@@ -28,6 +39,7 @@ def solve_files(temp_files, output_prefix, args, project_root):
     n = len(temp_files)
     print(f"\n{'='*50}")
     print(f"Processing {output_prefix} ({n} images)...")
+    print(f"Params: depth={args.edge_depth}, color={args.color_mode}, mutual_best={args.mutual_best}")
     print(f"{'='*50}")
 
     print("Loading images and extracting edges...")
@@ -36,9 +48,16 @@ def solve_files(temp_files, output_prefix, args, project_root):
     # Track progress during loading
     load_start = time.time()
     for i, f in enumerate(temp_files):
-        img = Image.open(f).convert('L')
+        if args.color_mode == 'rgb':
+            img = Image.open(f).convert('RGB')
+        else:
+            img = Image.open(f).convert('L')
+            
         arr = np.array(img)
-        edges_list.append(get_edges(arr))
+        if len(arr.shape) == 2:
+            arr = arr[:, :, np.newaxis] # Ensure 3D shape (H, W, 1)
+            
+        edges_list.append(get_edges(arr, args.edge_depth))
         if (i+1) % 100 == 0:
             print(f"  Loaded {i+1}/{n} images...")
 
@@ -47,21 +66,20 @@ def solve_files(temp_files, output_prefix, args, project_root):
     dist_TB = np.full((n, n), np.inf)
 
     # Compute distances efficiently
-    # edges_list has shape (n, 4, 640)
-    edges_arr = np.array(edges_list) # shape: (n, 4, 640)
-    top_edges = edges_arr[:, 0, :]
-    right_edges = edges_arr[:, 1, :]
-    bottom_edges = edges_arr[:, 2, :]
-    left_edges = edges_arr[:, 3, :]
+    # edges_list has shape (n, 4) where each is an array
+    top_edges = np.array([e[0] for e in edges_list])
+    right_edges = np.array([e[1] for e in edges_list])
+    bottom_edges = np.array([e[2] for e in edges_list])
+    left_edges = np.array([e[3] for e in edges_list])
 
     for i in range(n):
         # Broadcasting to compute distances from image i to all j
         diff_RL = np.abs(right_edges[i] - left_edges)
-        err_RL = np.mean(diff_RL, axis=1)
+        err_RL = np.mean(diff_RL, axis=(1, 2, 3))
         dist_RL[i, :] = err_RL
         
         diff_TB = np.abs(bottom_edges[i] - top_edges)
-        err_TB = np.mean(diff_TB, axis=1)
+        err_TB = np.mean(diff_TB, axis=(1, 2, 3))
         dist_TB[i, :] = err_TB
         
     np.fill_diagonal(dist_RL, np.inf)
@@ -71,7 +89,7 @@ def solve_files(temp_files, output_prefix, args, project_root):
     unplaced = set(range(n))
     clusters = []
     
-    # We maintain masked distance matrices to quickly find minimums
+    # We maintain masked distance matrices to quickly find minimums among UNPLACED pairs
     dist_RL_masked = dist_RL.copy()
     dist_TB_masked = dist_TB.copy()
 
@@ -137,38 +155,70 @@ def solve_files(temp_files, output_prefix, args, project_root):
             best_grow_err = np.inf
             best_grow_info = None
             
+            u_nodes = list(unplaced)
+            if not u_nodes:
+                break
+            
             # Fast search for next adjacent node
             # We look at all placed_nodes and find the best unplaced neighbor
             for p_node, (px, py) in placed_nodes.items():
-                # Right neighbor
+                # Right neighbor (p_node -> u_node)
                 if (px + 1, py) not in cluster_grid:
-                    u_node = np.argmin(dist_RL[p_node, :])
-                    val = dist_RL[p_node, u_node]
-                    if u_node in unplaced and val < best_grow_err:
+                    vals = dist_RL[p_node, u_nodes]
+                    min_idx = np.argmin(vals)
+                    u_node = u_nodes[min_idx]
+                    val = vals[min_idx]
+                    
+                    if args.mutual_best:
+                        if np.argmin(dist_RL[:, u_node]) != p_node:
+                            val = np.inf
+                            
+                    if val < best_grow_err:
                         best_grow_err = val
                         best_grow_info = (p_node, u_node, 1, 0)
                 
-                # Left neighbor
+                # Left neighbor (u_node -> p_node)
                 if (px - 1, py) not in cluster_grid:
-                    u_node = np.argmin(dist_RL[:, p_node])
-                    val = dist_RL[u_node, p_node]
-                    if u_node in unplaced and val < best_grow_err:
+                    vals = dist_RL[u_nodes, p_node]
+                    min_idx = np.argmin(vals)
+                    u_node = u_nodes[min_idx]
+                    val = vals[min_idx]
+                    
+                    if args.mutual_best:
+                        if np.argmin(dist_RL[u_node, :]) != p_node:
+                            val = np.inf
+                            
+                    if val < best_grow_err:
                         best_grow_err = val
                         best_grow_info = (p_node, u_node, -1, 0)
                 
-                # Bottom neighbor
+                # Bottom neighbor (p_node -> u_node)
                 if (px, py + 1) not in cluster_grid:
-                    u_node = np.argmin(dist_TB[p_node, :])
-                    val = dist_TB[p_node, u_node]
-                    if u_node in unplaced and val < best_grow_err:
+                    vals = dist_TB[p_node, u_nodes]
+                    min_idx = np.argmin(vals)
+                    u_node = u_nodes[min_idx]
+                    val = vals[min_idx]
+                    
+                    if args.mutual_best:
+                        if np.argmin(dist_TB[:, u_node]) != p_node:
+                            val = np.inf
+                            
+                    if val < best_grow_err:
                         best_grow_err = val
                         best_grow_info = (p_node, u_node, 0, 1)
                         
-                # Top neighbor
+                # Top neighbor (u_node -> p_node)
                 if (px, py - 1) not in cluster_grid:
-                    u_node = np.argmin(dist_TB[:, p_node])
-                    val = dist_TB[u_node, p_node]
-                    if u_node in unplaced and val < best_grow_err:
+                    vals = dist_TB[u_nodes, p_node]
+                    min_idx = np.argmin(vals)
+                    u_node = u_nodes[min_idx]
+                    val = vals[min_idx]
+                    
+                    if args.mutual_best:
+                        if np.argmin(dist_TB[u_node, :]) != p_node:
+                            val = np.inf
+                            
+                    if val < best_grow_err:
                         best_grow_err = val
                         best_grow_info = (p_node, u_node, 0, -1)
                         
@@ -263,12 +313,26 @@ def solve_files(temp_files, output_prefix, args, project_root):
 def format_time(seconds):
     return str(datetime.timedelta(seconds=int(seconds)))
 
+def str2bool(v):
+    if isinstance(v, bool):
+        return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
+
 def main():
     parser = argparse.ArgumentParser(description="DeepPCB Jigsaw Solver")
     parser.add_argument('--group', type=str, default='all', help="Group name (e.g., group00041) or 'all' to process every image together")
     parser.add_argument('--dataset_dir', type=str, default='dataset/PCBData', help="Base dataset directory")
     parser.add_argument('--output_dir', type=str, default='recovered_data', help="Output directory")
-    parser.add_argument('--threshold', type=float, default=5.0, help="MAE threshold for a valid match")
+    parser.add_argument('--threshold', type=float, default=15.0, help="MAE threshold for a valid match")
+    parser.add_argument('--edge_depth', type=int, default=5, help="Thickness of the edge compared (pixels)")
+    parser.add_argument('--color_mode', type=str, default='rgb', choices=['gray', 'rgb'], help="Color mode for comparison")
+    parser.add_argument('--mutual_best', type=str2bool, default=True, help="Force mutual best match condition")
+    
     args = parser.parse_args()
 
     project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
