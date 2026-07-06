@@ -77,7 +77,8 @@ def main(config_path: str = "config.yaml") -> None:
     eval_weights = cfg.get("evaluate", {}).get("weights", "weights/best.pt")
     
     if isinstance(eval_weights, list):
-        print(f"[WARN] YOLOv8 최신 버전에서는 파이썬 API 리스트 앙상블에 버그가 존재하여, 첫 번째 폴드({eval_weights[0]})를 대표로 사용합니다.")
+        print(f"[WARN] Ultralytics YOLO의 model.val()은 파이썬 API에서 다중 모델 앙상블 평가를 직접 지원하지 않으므로, 첫 번째 폴드({eval_weights[0]}) 단일 모델을 대표로 평가합니다.")
+        print(f"[WARN] (참고: 실제 앱(app) 추론 시에는 WBF 알고리즘을 통해 5개 폴드가 모두 정상적으로 앙상블 됩니다.)")
         weight_path = PROJECT_ROOT / eval_weights[0]
         if not weight_path.exists():
             print(f"[ERROR] 모델 파일이 없습니다: {weight_path}")
