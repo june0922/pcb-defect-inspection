@@ -6,8 +6,8 @@ echo "Starting Jigsaw Reconstruction Pipeline"
 echo "========================================"
 
 if [ -z "$1" ]; then
-    TARGET_GROUP="group00041"
-    echo "No group specified, defaulting to group00041"
+    TARGET_GROUP="all"
+    echo "No group specified, defaulting to 'all' (processes all groups)"
 else
     TARGET_GROUP="$1"
     echo "Target group: $1"

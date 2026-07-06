@@ -8,8 +8,8 @@ echo Starting Jigsaw Reconstruction Pipeline
 echo ========================================
 
 if "%1"=="" (
-    set TARGET_GROUP=group00041
-    echo No group specified, defaulting to group00041
+    set TARGET_GROUP=all
+    echo No group specified, defaulting to 'all' (processes all groups)
 ) else (
     set TARGET_GROUP=%1
     echo Target group: %1
