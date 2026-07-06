@@ -3,6 +3,11 @@ chcp 65001 >nul
 cd /d "%~dp0.."
 title DeepPCB Defect Review Station
 
+:: Activate virtual environment if it exists
+if exist "%~dp0..\venv\Scripts\activate.bat" (
+    call "%~dp0..\venv\Scripts\activate.bat"
+)
+
 echo ========================================
 echo  DeepPCB Defect Review Station
 echo ========================================

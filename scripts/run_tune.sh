@@ -4,6 +4,11 @@
 # Change working directory to the project root
 cd "$(dirname "$0")/.." || exit 1
 
+# Activate virtual environment if it exists
+if [ -f "$(dirname "$0")/../venv/bin/activate" ]; then
+    source "$(dirname "$0")/../venv/bin/activate"
+fi
+
 echo "========================================================"
 echo " YOLOv8 Hyperparameter Tuning"
 echo " Current Directory: $PWD"

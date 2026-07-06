@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 cd "$(dirname "$0")/.."
 
+# Activate virtual environment if it exists
+if [ -f "$(dirname "$0")/../venv/bin/activate" ]; then
+    source "$(dirname "$0")/../venv/bin/activate"
+fi
+
 echo "========================================"
 echo " DeepPCB Defect Review Station"
 echo "========================================"
