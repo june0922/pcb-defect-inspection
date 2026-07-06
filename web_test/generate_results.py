@@ -15,6 +15,7 @@ from pathlib import Path
 from ultralytics import YOLO
 from ensemble_boxes import weighted_boxes_fusion
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
+from tqdm import tqdm
 
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.append(str(PROJECT_ROOT / "src"))
@@ -55,13 +56,13 @@ def draw_boxes(img, boxes, scores, labels, class_names):
         cv2.putText(img, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
     return img
 
-def run_wbf(models, img_path, conf_thres, iou_thres, img_w, img_h, class_names):
+def run_wbf(models, img, conf_thres, iou_thres, img_w, img_h, class_names):
     all_boxes_norm = []
     all_scores = []
     all_labels = []
     
     for m in models:
-        res = m.predict(img_path, conf=conf_thres, iou=iou_thres, verbose=False)[0]
+        res = m.predict(img, conf=conf_thres, iou=iou_thres, verbose=False, device='cpu')[0]
         if len(res.boxes) > 0:
             boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
             scores = res.boxes.conf.cpu().numpy().tolist()
@@ -102,8 +103,8 @@ def generate_predictions():
 
     web_dir = PROJECT_ROOT / "web_test"
     results_dir = web_dir / "results"
-    notune_dir = results_dir / "notune"
-    yestune_dir = results_dir / "yestune"
+    notune_dir = results_dir / "patience15_old"
+    yestune_dir = results_dir / "patience15_new"
     
     for d in [notune_dir, yestune_dir]:
         if d.exists():
@@ -114,12 +115,12 @@ def generate_predictions():
     
     notune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "notune_500epoch" / "weights" / f"best_fold_{i}.pt"
+        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_150epoch_15patience_old" / "v8n_notune_721_5kfold_150epoch" / "weights" / f"best_fold_{i}.pt"
         notune_models.append(YOLO(str(m_path)))
 
     yestune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "yestune_500epoch" / "weights" / f"best_fold_{i}.pt"
+        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_150epoch_15patience_new" / "weights" / f"best_fold_{i}.pt"
         yestune_models.append(YOLO(str(m_path)))
         
     class_names = notune_models[0].names
@@ -132,7 +133,7 @@ def generate_predictions():
 
     print("\n[INFO] 추론 및 WBF 앙상블 적용 중...")
     
-    for img_name in image_files:
+    for img_name in tqdm(image_files, desc="Processing Test Images"):
         img_path = str(test_images_dir / img_name)
         img = cv2.imread(img_path)
         img_h, img_w = img.shape[:2]
@@ -144,8 +145,8 @@ def generate_predictions():
             labels=torch.tensor(gt_labels, dtype=torch.int64) if gt_labels else torch.empty((0,), dtype=torch.int64)
         )]
         
-        # No-Tune Inference
-        n_boxes_abs, n_scores, n_labels = run_wbf(notune_models, img_path, conf_thres, iou_thres, img_w, img_h, class_names)
+        # No-Tune Inference (Old)
+        n_boxes_abs, n_scores, n_labels = run_wbf(notune_models, img, conf_thres, iou_thres, img_w, img_h, class_names)
         
         img_notune = draw_boxes(img.copy(), n_boxes_abs, n_scores, n_labels, class_names)
         cv2.imwrite(str(notune_dir / img_name), img_notune)
@@ -157,8 +158,8 @@ def generate_predictions():
         )]
         metric_notune.update(pred_notune, target)
         
-        # Yes-Tune Inference
-        y_boxes_abs, y_scores, y_labels = run_wbf(yestune_models, img_path, conf_thres, iou_thres, img_w, img_h, class_names)
+        # Yes-Tune Inference (New)
+        y_boxes_abs, y_scores, y_labels = run_wbf(yestune_models, img, conf_thres, iou_thres, img_w, img_h, class_names)
         
         img_yestune = draw_boxes(img.copy(), y_boxes_abs, y_scores, y_labels, class_names)
         cv2.imwrite(str(yestune_dir / img_name), img_yestune)
@@ -176,12 +177,12 @@ def generate_predictions():
     
     def m(val): return float(val.item()) if hasattr(val, 'item') else float(val)
     
-    print("\n=== No-Tune Ensemble (WBF) ===")
+    print("\n=== 15 Patience Ensemble Old (WBF) ===")
     print(f"Recall:    {m(notune_res['mar_100']):.4f}")
     print(f"mAP@0.5:   {m(notune_res['map_50']):.4f}")
     print(f"mAP@50-95: {m(notune_res['map']):.4f}")
     
-    print("\n=== Yes-Tune Ensemble (WBF) ===")
+    print("\n=== 15 Patience Ensemble New (WBF) ===")
     print(f"Recall:    {m(yestune_res['mar_100']):.4f}")
     print(f"mAP@0.5:   {m(yestune_res['map_50']):.4f}")
     print(f"mAP@50-95: {m(yestune_res['map']):.4f}")

@@ -66,8 +66,8 @@ function updateView() {
     DOM.progressInfo.textContent = `Image: ${currentIndex + 1} / ${images.length}`;
     
     // Force image reload cleanly to avoid flickering if possible
-    DOM.notuneImg.src = `results/notune/${imgName}`;
-    DOM.yestuneImg.src = `results/yestune/${imgName}`;
+    DOM.notuneImg.src = `results/patience15_old/${imgName}`;
+    DOM.yestuneImg.src = `results/patience15_new/${imgName}`;
 }
 
 // Navigation
