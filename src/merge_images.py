@@ -65,7 +65,8 @@ def apply_augmentation(merged_im):
     textured = add_noise_and_texture(colored)
     embossed = apply_embossing(textured, binary)
     blurred = apply_blur_and_antialias(embossed)
-    final_img = apply_camera_degradation(blurred)
+    # 화질 손실을 원천 차단하기 위해 고의적인 카메라 화질 저하(JPEG 시뮬레이션 등) 적용 생략
+    final_img = blurred 
     return final_img
 
 def main():
@@ -129,14 +130,14 @@ def main():
             # 증강 로직(색상, 노이즈, 엠보싱 등) 적용
             augmented_img = apply_augmentation(merged_im)
             
-            # 색상 처리된 이미지를 동일 폴더에 저장
-            aug_save_path = os.path.join(output_dir, f"{base_filename}_colored.jpg")
+            # 색상 처리된 이미지도 무손실 PNG로 동일 폴더에 저장
+            aug_save_path = os.path.join(output_dir, f"{base_filename}_colored.png")
             cv2.imwrite(aug_save_path, augmented_img)
             
-            print(f"[{base_filename}] 마스크(png) 및 색상 이미지(jpg) 저장 완료 (포함된 결함 이미지 수: {defect_count})")
+            print(f"[{base_filename}] 마스크(png) 및 색상 이미지(png) 저장 완료 (포함된 결함 이미지 수: {defect_count})")
             total_created += 1
 
-    print(f"\n모든 작업이 완료되었습니다! 총 {total_created}세트의 합성/색상 이미지가 생성되었습니다.")
+    print(f"\n모든 작업이 완료되었습니다! 총 {total_created}세트의 무손실(png) 합성/색상 이미지가 생성되었습니다.")
     print(f"결과 저장 위치: {output_dir}")
 
 if __name__ == "__main__":
