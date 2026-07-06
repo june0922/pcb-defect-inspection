@@ -25,7 +25,7 @@ split:
 train:
   batch: -1
   epochs: 150
-  model: weights/yolov8n.pt
+  model: weights/yolov8m.pt
   patience: 15
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: disk
@@ -33,7 +33,7 @@ tune:
   batch: -1
   epochs: 150
   iterations: 20
-  model: weights/yolov8n.pt
+  model: weights/yolov8m.pt
   patience: 15
   device: 0
   cache: disk
