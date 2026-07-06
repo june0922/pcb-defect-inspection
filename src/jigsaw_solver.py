@@ -39,11 +39,12 @@ def solve_files(temp_files, output_prefix, args, project_root):
     n = len(temp_files)
     print(f"\n{'='*50}")
     print(f"Processing {output_prefix} ({n} images)...")
-    print(f"Params: depth={args.edge_depth}, color={args.color_mode}, mutual_best={args.mutual_best}")
+    print(f"Params: depth={args.edge_depth}, threshold={args.threshold}, color={args.color_mode}, mutual_best={args.mutual_best}, pattern_bonus={args.pattern_bonus}")
     print(f"{'='*50}")
 
     print("Loading images and extracting edges...")
     edges_list = []
+    groups_list = []
     
     # Track progress during loading
     load_start = time.time()
@@ -58,6 +59,8 @@ def solve_files(temp_files, output_prefix, args, project_root):
             arr = arr[:, :, np.newaxis] # Ensure 3D shape (H, W, 1)
             
         edges_list.append(get_edges(arr, args.edge_depth))
+        groups_list.append(os.path.basename(os.path.dirname(os.path.dirname(f))))
+        
         if (i+1) % 100 == 0:
             print(f"  Loaded {i+1}/{n} images...")
 
@@ -71,16 +74,38 @@ def solve_files(temp_files, output_prefix, args, project_root):
     right_edges = np.array([e[1] for e in edges_list])
     bottom_edges = np.array([e[2] for e in edges_list])
     left_edges = np.array([e[3] for e in edges_list])
+    
+    groups_arr = np.array(groups_list)
+    # Add a tiny penalty (0.01) if pieces are from different original groups
+    # This ensures blank white edges prefer joining blank edges from the SAME group.
+    group_penalty = (groups_arr[:, None] != groups_arr[None, :]).astype(float) * 0.01
 
     for i in range(n):
         # Broadcasting to compute distances from image i to all j
         diff_RL = np.abs(right_edges[i] - left_edges)
         err_RL = np.mean(diff_RL, axis=(1, 2, 3))
-        dist_RL[i, :] = err_RL
+        
+        if args.pattern_bonus > 0:
+            # Background is white (255), circuit is black (0). We invert to reward black overlaps.
+            inv_right = (255.0 - right_edges[i]) / 255.0
+            inv_left = (255.0 - left_edges) / 255.0
+            intersect_RL = inv_right * inv_left
+            bonus_RL = np.mean(intersect_RL, axis=(1, 2, 3)) * args.pattern_bonus
+            err_RL -= bonus_RL
+            
+        dist_RL[i, :] = err_RL + group_penalty[i, :]
         
         diff_TB = np.abs(bottom_edges[i] - top_edges)
         err_TB = np.mean(diff_TB, axis=(1, 2, 3))
-        dist_TB[i, :] = err_TB
+        
+        if args.pattern_bonus > 0:
+            inv_bottom = (255.0 - bottom_edges[i]) / 255.0
+            inv_top = (255.0 - top_edges) / 255.0
+            intersect_TB = inv_bottom * inv_top
+            bonus_TB = np.mean(intersect_TB, axis=(1, 2, 3)) * args.pattern_bonus
+            err_TB -= bonus_TB
+            
+        dist_TB[i, :] = err_TB + group_penalty[i, :]
         
     np.fill_diagonal(dist_RL, np.inf)
     np.fill_diagonal(dist_TB, np.inf)
@@ -240,11 +265,16 @@ def solve_files(temp_files, output_prefix, args, project_root):
 
         clusters.append(cluster_grid)
 
-    print(f"Formed {len(clusters)} clusters for {output_prefix}.")
+    print(f"Formed {len(clusters)} total clusters for {output_prefix}.")
     
     img_width, img_height = 640, 640
     
+    saved_clusters = 0
     for c_idx, cluster in enumerate(clusters):
+        if len(cluster) <= 1:
+            # Do not save singleton clusters
+            continue
+            
         min_x = min(x for x, y in cluster.keys())
         min_y = min(y for x, y in cluster.keys())
         
@@ -258,8 +288,7 @@ def solve_files(temp_files, output_prefix, args, project_root):
         cols = max_x + 1
         rows = max_y + 1
         
-        if len(normalized_cluster) > 1:
-            print(f"Cluster {c_idx}: {len(normalized_cluster)} images, Grid: {cols}x{rows}")
+        print(f"Saving Cluster {saved_clusters}: {len(normalized_cluster)} images, Grid: {cols}x{rows}")
         
         layout_data = []
         for (x, y), node in normalized_cluster.items():
@@ -279,7 +308,7 @@ def solve_files(temp_files, output_prefix, args, project_root):
                 'original_group': os.path.basename(os.path.dirname(os.path.dirname(temp_file)))
             })
             
-        layout_path = os.path.join(out_dir, f"{output_prefix}_cluster_{c_idx:03d}_layout.json")
+        layout_path = os.path.join(out_dir, f"{output_prefix}_cluster_{saved_clusters:03d}_layout.json")
         with open(layout_path, 'w', encoding='utf-8') as f:
             json.dump(layout_data, f, indent=4)
             
@@ -302,12 +331,15 @@ def solve_files(temp_files, output_prefix, args, project_root):
                 im_test = Image.open(test_file)
                 canvas_test.paste(im_test, (paste_x, paste_y))
             
-        out_temp_path = os.path.join(out_dir, f"{output_prefix}_cluster_{c_idx:03d}_temp_normal.jpg")
-        out_test_path = os.path.join(out_dir, f"{output_prefix}_cluster_{c_idx:03d}_test_defect.jpg")
+        out_temp_path = os.path.join(out_dir, f"{output_prefix}_cluster_{saved_clusters:03d}_temp_normal.jpg")
+        out_test_path = os.path.join(out_dir, f"{output_prefix}_cluster_{saved_clusters:03d}_test_defect.jpg")
         
         canvas_temp.save(out_temp_path, quality=95)
         canvas_test.save(out_test_path, quality=95)
         
+        saved_clusters += 1
+        
+    print(f"Total merged clusters saved: {saved_clusters}")
     return n
 
 def format_time(seconds):
@@ -327,11 +359,12 @@ def main():
     parser = argparse.ArgumentParser(description="DeepPCB Jigsaw Solver")
     parser.add_argument('--group', type=str, default='all', help="Group name (e.g., group00041) or 'all' to process every image together")
     parser.add_argument('--dataset_dir', type=str, default='dataset/PCBData', help="Base dataset directory")
-    parser.add_argument('--output_dir', type=str, default='recovered_data', help="Output directory")
+    parser.add_argument('--output_dir', type=str, default='recovered_data/merged_clusters', help="Output directory")
     parser.add_argument('--threshold', type=float, default=15.0, help="MAE threshold for a valid match")
-    parser.add_argument('--edge_depth', type=int, default=5, help="Thickness of the edge compared (pixels)")
+    parser.add_argument('--edge_depth', type=int, default=2, help="Thickness of the edge compared (pixels)")
     parser.add_argument('--color_mode', type=str, default='rgb', choices=['gray', 'rgb'], help="Color mode for comparison")
     parser.add_argument('--mutual_best', type=str2bool, default=True, help="Force mutual best match condition")
+    parser.add_argument('--pattern_bonus', type=float, default=30.0, help="Bonus score given to matches that connect black structural patterns")
     
     args = parser.parse_args()
 
