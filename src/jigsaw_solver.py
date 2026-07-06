@@ -178,8 +178,8 @@ def solve_group(group_name, args, project_root):
             json.dump(layout_data, f, indent=4)
             
         canvas_temp = Image.new('RGB', (cols * img_width, rows * img_height))
-        # Defect image canvas is initialized black. We do not mix with temp images.
-        canvas_test = Image.new('RGB', (cols * img_width, rows * img_height), (0, 0, 0))
+        # Defect image canvas is initialized white. We do not mix with temp images.
+        canvas_test = Image.new('RGB', (cols * img_width, rows * img_height), (255, 255, 255))
         
         for (x, y), node in normalized_cluster.items():
             temp_file = temp_files[node]

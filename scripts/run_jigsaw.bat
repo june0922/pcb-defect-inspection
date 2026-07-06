@@ -9,7 +9,7 @@ echo ========================================
 
 if "%1"=="" (
     set TARGET_GROUP=all
-    echo No group specified, defaulting to 'all' (processes all groups)
+    echo No group specified, defaulting to all
 ) else (
     set TARGET_GROUP=%1
     echo Target group: %1
