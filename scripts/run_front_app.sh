@@ -7,14 +7,14 @@ if [ -f "$(dirname "$0")/../venv/bin/activate" ]; then
 fi
 
 echo "========================================"
-echo " DeepPCB Defect Review Station"
+echo " DeepPCB Real-Time Inspection Monitor (Front App)"
 echo "========================================"
 echo
 
-echo "[INFO] Starting review station..."
+echo "[INFO] Starting inspection monitor (Front)..."
 echo
 
-python app_back/run.py
+python app_front/run.py
 if [ $? -ne 0 ]; then
     echo
     echo "[ERROR] Application exited with error."
