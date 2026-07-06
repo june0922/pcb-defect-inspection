@@ -31,10 +31,10 @@ train:
   cache: disk
 tune:
   batch: -1
-  epochs: 150
+  epochs: 500
   iterations: 20
   model: weights/yolov8n.pt
-  patience: 15
+  patience: 50
   device: 0
   cache: disk
 kfold:
