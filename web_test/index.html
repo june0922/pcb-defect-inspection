@@ -17,7 +17,7 @@
         <!-- Baseline Panel (Left) -->
         <section class="panel left-panel">
             <div class="panel-header">
-                <h2 data-tooltip="튜닝 이전 하이퍼파라미터로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">No-Tune Ensemble (5-Folds, 500 epochs)</h2>
+                <h2 data-tooltip="기존 15 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">15 Patience Ensemble Old (5-Folds, 150 epochs)</h2>
             </div>
             
             <div class="metrics-card" id="notune-metrics">
@@ -36,14 +36,14 @@
             </div>
 
             <div class="image-wrapper">
-                <img id="notune-img" src="" alt="No-Tune Image" />
+                <img id="notune-img" src="" alt="15 Patience Old Image" />
             </div>
         </section>
 
         <!-- Ensemble Panel (Right) -->
         <section class="panel right-panel">
             <div class="panel-header">
-                <h2 data-tooltip="튜닝 이후 하이퍼파라미터로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">Yes-Tune Ensemble (5-Folds, 500 epochs)</h2>
+                <h2 data-tooltip="신규 15 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">15 Patience Ensemble New (5-Folds, 150 epochs)</h2>
             </div>
             
             <div class="metrics-card" id="yestune-metrics">
@@ -62,7 +62,7 @@
             </div>
 
             <div class="image-wrapper">
-                <img id="yestune-img" src="" alt="Yes-Tune Image" />
+                <img id="yestune-img" src="" alt="15 Patience New Image" />
             </div>
         </section>
     </main>
