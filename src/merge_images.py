@@ -1,113 +1,144 @@
 import os
 import glob
 import random
+import math
+import cv2
+import numpy as np
 from PIL import Image
 
-def get_image_paths():
-    # dataset 폴더 경로 (스크립트 위치 기준 상위 폴더의 dataset/PCBData)
-    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'PCBData'))
-    test_images = glob.glob(os.path.join(base_dir, '**', '*_test.jpg'), recursive=True)
+def apply_color_mapping(binary_img):
+    h, w = binary_img.shape
+    colored = np.zeros((h, w, 3), dtype=np.uint8)
+
+    # 배경색은 녹색 계열만 나오도록 고정
+    bg_color = (random.randint(0, 20), random.randint(50, 100), random.randint(0, 20))
+
+    # 회로 색상에서 금색(gold) 제거, 구리색(copper)과 은색(silver)만 남김
+    circuit_choice = random.choice(['copper', 'silver'])
+    if circuit_choice == 'copper':
+        c_color = (51, 115, 184)
+    else:
+        c_color = (192, 192, 192)
+
+    colored[binary_img == 0] = c_color
+    colored[binary_img == 255] = bg_color
+    return colored
+
+def add_noise_and_texture(img):
+    h, w, c = img.shape
+    noise = np.random.normal(0, 15, (h, w, c)).astype(np.int16)
+    img_noisy = np.clip(img.astype(np.int16) + noise, 0, 255).astype(np.uint8)
+    return img_noisy
+
+def apply_embossing(colored_img, binary_img):
+    edges = cv2.Canny(binary_img, 50, 150)
+    h, w = binary_img.shape
     
-    images_info = []
-    for test_img in test_images:
-        directory = os.path.dirname(test_img)
-        basename = os.path.basename(test_img)
-        prefix = basename.replace('_test.jpg', '')
-        
-        test_path = test_img
-        temp_path = os.path.join(directory, f"{prefix}_temp.jpg")
-        
-        if os.path.exists(temp_path):
-            images_info.append({
-                'test': test_path,
-                'temp': temp_path,
-                'id': prefix
-            })
-            
-    return images_info
+    shift_h, shift_v = 1, 1
+    M_h = np.float32([[1, 0, shift_h], [0, 1, shift_v]])
+    M_s = np.float32([[1, 0, -shift_h], [0, 1, -shift_v]])
+    
+    edges_h = cv2.warpAffine(edges, M_h, (w, h))
+    edges_s = cv2.warpAffine(edges, M_s, (w, h))
+    
+    colored_img = colored_img.astype(np.float32)
+    colored_img[edges_h == 255] += 50
+    colored_img[edges_s == 255] -= 50
+    return np.clip(colored_img, 0, 255).astype(np.uint8)
+
+def apply_blur_and_antialias(img):
+    return cv2.GaussianBlur(img, (3, 3), 0.5)
+
+def apply_camera_degradation(img):
+    if random.random() > 0.5:
+        img = cv2.GaussianBlur(img, (5, 5), 1.0)
+    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), random.randint(60, 95)]
+    result, encimg = cv2.imencode('.jpg', img, encode_param)
+    decimg = cv2.imdecode(encimg, 1)
+    return decimg
+
+def apply_augmentation(merged_im):
+    img_np = np.array(merged_im.convert('L'))
+    _, binary = cv2.threshold(img_np, 127, 255, cv2.THRESH_BINARY)
+    
+    colored = apply_color_mapping(binary)
+    textured = add_noise_and_texture(colored)
+    embossed = apply_embossing(textured, binary)
+    blurred = apply_blur_and_antialias(embossed)
+    final_img = apply_camera_degradation(blurred)
+    return final_img
 
 def main():
-    print("이미지 경로를 검색하는 중입니다...")
-    images_info = get_image_paths()
-    print(f"총 {len(images_info)} 쌍의 이미지를 찾았습니다.")
+    base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'dataset', 'PCBData'))
+    groups = [d for d in os.listdir(base_dir) if os.path.isdir(os.path.join(base_dir, d)) and d.startswith('group')]
+    groups.sort()
     
-    if len(images_info) != 1500:
-        print(f"경고: 1500장의 이미지를 예상했으나 {len(images_info)}장이 발견되었습니다.")
-        if len(images_info) == 0:
-            print("이미지를 찾을 수 없습니다. 경로를 확인해주세요.")
-            return
-
-    # 1500장의 이미지를 중복 없이 무작위로 사용하기 위해 셔플 (랜덤성 부여)
-    random.shuffle(images_info)
-
-    # 16가지의 그리드 조합 (행, 열)
-    combinations = [
-        (1, 1), (1, 2), (1, 3), (1, 4),
-        (2, 1), (2, 2), (2, 3), (2, 4),
-        (3, 1), (3, 2), (3, 3), (3, 4),
-        (4, 1), (4, 2), (4, 3), (4, 4)
-    ]
-    
-    # 1500장의 이미지를 모두 소진하기 위해 위 16가지 조합을 각각 15번씩 반복 수행
-    # (총 필요 이미지 장수 = 100장 * 15세트 = 1500장)
-    sets_count = 15
-    tasks = combinations * sets_count
-    
-    # 저장될 폴더 경로
     output_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'merged_data'))
     os.makedirs(output_dir, exist_ok=True)
     
-    image_idx = 0
     img_width, img_height = 640, 640
-    defect_prob = 0.0625  # 6.25% 확률로 결함 이미지 사용
+    defect_prob = 0.02
+    total_created = 0
     
-    # 조합별 생성 횟수를 카운트하기 위한 딕셔너리
-    counts = {f"{r}x{c}": 0 for r, c in combinations}
-
-    print("이미지 합성 작업을 시작합니다...")
+    print("이미지 합성 및 색상 처리 작업을 시작합니다...")
     
-    for (r, c) in tasks:
-        needed = r * c
-        if image_idx + needed > len(images_info):
-            print(f"남은 이미지가 부족하여 {r}x{c} 합성을 중단합니다.")
-            break
+    for group in groups:
+        group_path = os.path.join(base_dir, group)
+        temp_images = glob.glob(os.path.join(group_path, '**', '*_temp.jpg'), recursive=True)
+        temp_images.sort(key=lambda x: os.path.basename(x))
+        
+        available_images = temp_images[:]
+        group_created_count = 0
+        
+        while len(available_images) >= 100:
+            S = 10
+            needed = 100
+            selected_images = available_images[:needed]
+            available_images = available_images[needed:]
             
-        group = images_info[image_idx : image_idx + needed]
-        image_idx += needed
-        
-        # 배경이 될 빈 캔버스 이미지 생성
-        merged_im = Image.new('RGB', (c * img_width, r * img_height))
-        
-        defect_count = 0
-        for i, info in enumerate(group):
-            row = i // c
-            col = i % c
+            merged_im = Image.new('RGB', (S * img_width, S * img_height))
+            defect_count = 0
             
-            # 지정된 확률(6.25%)에 따라 결함 이미지 사용 여부 결정
-            if random.random() < defect_prob:
-                img_path = info['test']  # 결함 이미지
-                defect_count += 1
-            else:
-                img_path = info['temp']  # 정상 이미지
+            for i, temp_path in enumerate(selected_images):
+                col = i // S
+                row = i % S
+                use_defect = random.random() < defect_prob
+                img_to_paste = temp_path
                 
-            try:
-                with Image.open(img_path) as im:
-                    merged_im.paste(im, (col * img_width, row * img_height))
-            except Exception as e:
-                print(f"이미지를 불러오는 중 에러 발생 ({img_path}): {e}")
+                if use_defect:
+                    test_path = temp_path.replace('_temp.jpg', '_test.jpg')
+                    if os.path.exists(test_path):
+                        img_to_paste = test_path
+                        defect_count += 1
+                    else:
+                        print(f"경고: 결함 이미지를 찾을 수 없음 ({test_path})")
                 
-        # 생성된 캔버스 저장
-        counts[f"{r}x{c}"] += 1
-        idx = counts[f"{r}x{c}"]
-        filename = f"merged_{r}x{c}_{idx:02d}.jpg"
-        save_path = os.path.join(output_dir, filename)
-        
-        merged_im.save(save_path, quality=95)
-        print(f"[{filename} 저장 완료] (포함된 결함 이미지 수: {defect_count})")
+                try:
+                    with Image.open(img_to_paste) as im:
+                        merged_im.paste(im, (col * img_width, row * img_height))
+                except Exception as e:
+                    print(f"이미지를 불러오는 중 에러 발생 ({img_to_paste}): {e}")
+                    
+            group_created_count += 1
+            
+            # 원본 바이너리 마스크 저장
+            base_filename = f"merged_{group}_{S}x{S}_{group_created_count:02d}"
+            save_path = os.path.join(output_dir, f"{base_filename}.png")
+            merged_im.save(save_path, format="PNG")
+            
+            # 증강 로직(색상, 노이즈, 엠보싱 등) 적용
+            augmented_img = apply_augmentation(merged_im)
+            
+            # 색상 처리된 이미지를 동일 폴더에 저장
+            aug_save_path = os.path.join(output_dir, f"{base_filename}_colored.jpg")
+            cv2.imwrite(aug_save_path, augmented_img)
+            
+            print(f"[{base_filename}] 마스크(png) 및 색상 이미지(jpg) 저장 완료 (포함된 결함 이미지 수: {defect_count})")
+            total_created += 1
 
-    total_created = sum(counts.values())
-    print(f"\n모든 작업이 완료되었습니다! 총 {total_created}장의 합성 이미지가 생성되었습니다.")
+    print(f"\n모든 작업이 완료되었습니다! 총 {total_created}세트의 합성/색상 이미지가 생성되었습니다.")
     print(f"결과 저장 위치: {output_dir}")
 
 if __name__ == "__main__":
     main()
+
