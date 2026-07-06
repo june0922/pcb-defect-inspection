@@ -78,7 +78,10 @@ def solve_files(temp_files, output_prefix, args, project_root):
         err_RL = np.mean(diff_RL, axis=(1, 2, 3))
         
         if args.pattern_bonus > 0:
-            intersect_RL = (right_edges[i] / 255.0) * (left_edges / 255.0)
+            # Background is white (255), circuit is black (0). We invert to reward black overlaps.
+            inv_right = (255.0 - right_edges[i]) / 255.0
+            inv_left = (255.0 - left_edges) / 255.0
+            intersect_RL = inv_right * inv_left
             bonus_RL = np.mean(intersect_RL, axis=(1, 2, 3)) * args.pattern_bonus
             err_RL -= bonus_RL
             
@@ -88,7 +91,9 @@ def solve_files(temp_files, output_prefix, args, project_root):
         err_TB = np.mean(diff_TB, axis=(1, 2, 3))
         
         if args.pattern_bonus > 0:
-            intersect_TB = (bottom_edges[i] / 255.0) * (top_edges / 255.0)
+            inv_bottom = (255.0 - bottom_edges[i]) / 255.0
+            inv_top = (255.0 - top_edges) / 255.0
+            intersect_TB = inv_bottom * inv_top
             bonus_TB = np.mean(intersect_TB, axis=(1, 2, 3)) * args.pattern_bonus
             err_TB -= bonus_TB
             
