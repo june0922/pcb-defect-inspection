@@ -17,7 +17,7 @@ from ensemble_boxes import weighted_boxes_fusion
 from torchmetrics.detection.mean_ap import MeanAveragePrecision
 from tqdm import tqdm
 
-PROJECT_ROOT = Path(__file__).parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT / "src"))
 from utils import load_config, get_paths
 
@@ -104,7 +104,7 @@ def generate_predictions():
     web_dir = PROJECT_ROOT / "web_test"
     results_dir = web_dir / "results"
     notune_dir = results_dir / "patience15_old"
-    yestune_dir = results_dir / "patience15_new"
+    yestune_dir = results_dir / "patience100_new"
     
     for d in [notune_dir, yestune_dir]:
         if d.exists():
@@ -120,7 +120,7 @@ def generate_predictions():
 
     yestune_models = []
     for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_150epoch_15patience_new" / "weights" / f"best_fold_{i}.pt"
+        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_300epoch_100patience" / "weights" / f"best_fold_{i}.pt"
         yestune_models.append(YOLO(str(m_path)))
         
     class_names = notune_models[0].names
@@ -182,7 +182,7 @@ def generate_predictions():
     print(f"mAP@0.5:   {m(notune_res['map_50']):.4f}")
     print(f"mAP@50-95: {m(notune_res['map']):.4f}")
     
-    print("\n=== 15 Patience Ensemble New (WBF) ===")
+    print("\n=== 100 Patience Ensemble New (WBF) ===")
     print(f"Recall:    {m(yestune_res['mar_100']):.4f}")
     print(f"mAP@0.5:   {m(yestune_res['map_50']):.4f}")
     print(f"mAP@50-95: {m(yestune_res['map']):.4f}")
