@@ -1,13 +1,13 @@
 import os
 import glob
 import numpy as np
-from PIL import Image
-Image.MAX_IMAGE_PIXELS = None
 import argparse
 import sys
 import time
 import datetime
 import cv2
+import scipy.sparse as sp
+from scipy.sparse.linalg import lsqr
 
 def solve_group(group_dir, output_prefix, args, out_dir):
     temp_files = sorted(glob.glob(os.path.join(group_dir, '*_temp.jpg')))
@@ -17,80 +17,98 @@ def solve_group(group_dir, output_prefix, args, out_dir):
 
     print(f"[{output_prefix}] Reconstructing original massive PCB...")
     
-    img_width, img_height = 640, 640
-    # DeepPCB uses a 25x25 grid for the 16000x16000 original image
-    grid_cols = 25
-    grid_rows = 25
+    N = len(temp_files)
+    imgs = [cv2.imread(f, cv2.IMREAD_GRAYSCALE) for f in temp_files]
     
-    canvas_w = grid_cols * img_width
-    canvas_h = grid_rows * img_height
-    
-    canvas_temp = Image.new('RGB', (canvas_w, canvas_h), (255, 255, 255))
-    canvas_test = Image.new('RGB', (canvas_w, canvas_h), (255, 255, 255))
-    
-    min_x, max_x = canvas_w, 0
-    min_y, max_y = canvas_h, 0
+    edges = []
+    # Compare each image with up to 20 neighbors to build the translation graph
+    for i in range(N):
+        for j in range(i + 1, min(N, i + 21)):
+            shift, response = cv2.phaseCorrelate(np.float32(imgs[i]), np.float32(imgs[j]))
+            if response > 0.03:
+                edges.append((i, j, shift[0], shift[1], response))
+                
+    if len(edges) == 0:
+        print(f"[{output_prefix}] WARNING: No overlapping edges found! Placing diagonally.")
+        X = np.arange(N) * 640.0
+        Y = np.arange(N) * 640.0
+    else:
+        A = sp.lil_matrix((len(edges), N))
+        bx = np.zeros(len(edges))
+        by = np.zeros(len(edges))
 
-    for temp_file in temp_files:
-        basename = os.path.basename(temp_file)
-        # e.g., 00041011_temp.jpg -> 00041011
-        name_no_ext = basename.replace('_temp.jpg', '')
-        
-        # The last 3 digits represent the absolute index in the 25x25 grid
-        idx_str = name_no_ext[-3:]
-        idx = int(idx_str)
-        
-        col = idx % grid_cols
-        row = idx // grid_cols
-        
-        x = col * img_width
-        y = row * img_height
-        
-        min_x, max_x = min(min_x, x), max(max_x, x + img_width)
-        min_y, max_y = min(min_y, y), max(max_y, y + img_height)
+        for e_idx, (i, j, dx, dy, resp) in enumerate(edges):
+            w = resp # weight by confidence
+            A[e_idx, i] = w
+            A[e_idx, j] = -w
+            bx[e_idx] = w * dx
+            by[e_idx] = w * dy
 
-        # Paste Temp
-        im_temp = Image.open(temp_file)
-        canvas_temp.paste(im_temp, (x, y))
+        # Anchor node 0
+        A_anchor = sp.lil_matrix((1, N))
+        A_anchor[0, 0] = 1.0
+        A = sp.vstack([A, A_anchor])
+        bx = np.append(bx, 0)
+        by = np.append(by, 0)
+
+        # Solve sparse linear system for global absolute coordinates
+        X = lsqr(A, bx)[0]
+        Y = lsqr(A, by)[0]
+
+    # Normalize coordinates so the top-left most image is at (0, 0)
+    X -= X.min()
+    Y -= Y.min()
+    
+    max_x = int(np.ceil(X.max() + 640))
+    max_y = int(np.ceil(Y.max() + 640))
+    
+    # Initialize canvases with WHITE (255)
+    canvas_temp = np.ones((max_y, max_x, 3), dtype=np.uint8) * 255
+    canvas_test = np.ones((max_y, max_x, 3), dtype=np.uint8) * 255
+    
+    for i in range(N):
+        x = int(round(X[i]))
+        y = int(round(Y[i]))
         
-        # Paste Test
-        test_file = temp_file.replace('_temp.jpg', '_test.jpg')
+        # Load color images
+        img_temp = cv2.imread(temp_files[i])
+        test_file = temp_files[i].replace('_temp.jpg', '_test.jpg')
         if os.path.exists(test_file):
-            im_test = Image.open(test_file)
-            canvas_test.paste(im_test, (x, y))
+            img_test = cv2.imread(test_file)
         else:
-            # If test is missing, fill with white to avoid black gaps
-            im_test = Image.new('RGB', (img_width, img_height), (255, 255, 255))
-            canvas_test.paste(im_test, (x, y))
-
-    # Crop to the actual bounding box of available pieces to save disk space
-    if min_x < max_x and min_y < max_y:
-        canvas_temp = canvas_temp.crop((min_x, min_y, max_x, max_y))
-        canvas_test = canvas_test.crop((min_x, min_y, max_x, max_y))
+            img_test = np.ones((640, 640, 3), dtype=np.uint8) * 255
+            
+        # Paste using minimum blending (darkest pixel wins, preserving circuit lines seamlessly)
+        roi_temp = canvas_temp[y:y+640, x:x+640]
+        canvas_temp[y:y+640, x:x+640] = np.minimum(roi_temp, img_temp)
         
+        roi_test = canvas_test[y:y+640, x:x+640]
+        canvas_test[y:y+640, x:x+640] = np.minimum(roi_test, img_test)
+
+    # Note: No need to crop because X and Y start exactly at 0.
     out_temp_path = os.path.join(out_dir, f"{output_prefix}_reconstructed_normal.jpg")
     out_test_path = os.path.join(out_dir, f"{output_prefix}_reconstructed_defect.jpg")
     
-    canvas_temp.save(out_temp_path, quality=95)
-    canvas_test.save(out_test_path, quality=95)
+    cv2.imwrite(out_temp_path, canvas_temp)
+    cv2.imwrite(out_test_path, canvas_test)
     
-    print(f"[{output_prefix}] Saved Reconstructed Image: {canvas_temp.size[0]}x{canvas_temp.size[1]} px")
+    print(f"[{output_prefix}] Saved Reconstructed Image: {canvas_temp.shape[1]}x{canvas_temp.shape[0]} px")
 
 def format_time(seconds):
     return str(datetime.timedelta(seconds=int(seconds)))
 
 def main():
-    parser = argparse.ArgumentParser(description="DeepPCB Absolute Coordinate Reconstructor")
+    parser = argparse.ArgumentParser(description="DeepPCB Global Phase Correlation Stitcher")
     parser.add_argument('--group', type=str, default='all', help="Group name (e.g., group00041) or 'all' to process all groups sequentially")
     parser.add_argument('--dataset_dir', type=str, default='dataset/PCBData', help="Base dataset directory")
     parser.add_argument('--output_dir', type=str, default='recovered_data/merged_clusters', help="Output directory")
     
     # We keep the old parameters in argparse so scripts/run_jigsaw.bat doesn't crash
-    parser.add_argument('--threshold', type=float, default=15.0, help="Ignored: Absolute positioning used")
-    parser.add_argument('--edge_depth', type=int, default=2, help="Ignored: Absolute positioning used")
-    parser.add_argument('--color_mode', type=str, default='rgb', help="Ignored: Absolute positioning used")
-    parser.add_argument('--mutual_best', type=bool, default=True, help="Ignored: Absolute positioning used")
-    parser.add_argument('--pattern_bonus', type=float, default=30.0, help="Ignored: Absolute positioning used")
+    parser.add_argument('--threshold', type=float, default=15.0, help="Ignored: Graph SLAM used")
+    parser.add_argument('--edge_depth', type=int, default=2, help="Ignored: Graph SLAM used")
+    parser.add_argument('--color_mode', type=str, default='rgb', help="Ignored: Graph SLAM used")
+    parser.add_argument('--mutual_best', type=bool, default=True, help="Ignored: Graph SLAM used")
+    parser.add_argument('--pattern_bonus', type=float, default=30.0, help="Ignored: Graph SLAM used")
     
     args = parser.parse_args()
 
