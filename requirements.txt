@@ -4,6 +4,11 @@ scikit-learn
 pyyaml
 numpy
 matplotlib
+tqdm
+torch
+scipy
+networkx
+Pillow
 
 # 웹 데모 (web_hwang/)
 fastapi
