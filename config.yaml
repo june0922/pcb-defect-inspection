@@ -16,13 +16,14 @@ paths:
     project_root: .
     raw_data: dataset/PCBData
 preprocess:
-  img_size: 640
+  img_size: 1280
 split:
   random_state: 42
   test: 0.1
   train: 0.7
   val: 0.2
 train:
+  imgsz: 1280
   batch: -1
   epochs: 500
   model: weights/yolov8n.pt
@@ -30,6 +31,7 @@ train:
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: ram
 tune:
+  imgsz: 1280
   batch: -1
   epochs: 30
   iterations: 300
