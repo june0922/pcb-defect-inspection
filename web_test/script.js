@@ -1,22 +1,13 @@
 let images = [];
+let modelsInfo = [];
 let currentIndex = 0;
 let isPlaying = false;
 let playInterval = null;
 let currentSpeed = 1; // 1x = 1000ms
 
 const DOM = {
-    notuneImg: document.getElementById('notune-img'),
-    yestuneImg: document.getElementById('yestune-img'),
     filename: document.getElementById('filename-display'),
     progressInfo: document.getElementById('progress-info'),
-    
-    // Metrics
-    notuneRecall: document.getElementById('notune-recall'),
-    notuneMap50: document.getElementById('notune-map50'),
-    notuneMap5095: document.getElementById('notune-map5095'),
-    yestuneRecall: document.getElementById('yestune-recall'),
-    yestuneMap50: document.getElementById('yestune-map50'),
-    yestuneMap5095: document.getElementById('yestune-map5095'),
     
     // Controls
     btnPrev: document.getElementById('btn-prev'),
@@ -35,7 +26,9 @@ function loadData() {
         }
         
         images = RESULTS_DATA.images;
-        updateMetrics(RESULTS_DATA.metrics);
+        modelsInfo = RESULTS_DATA.models;
+        
+        initModels(modelsInfo);
         
         if (images.length > 0) {
             updateView();
@@ -46,16 +39,29 @@ function loadData() {
     }
 }
 
-function updateMetrics(m) {
+function initModels(models) {
     const format = val => (val * 100).toFixed(2) + '%';
     
-    DOM.notuneRecall.textContent = format(m.notune.recall);
-    DOM.notuneMap50.textContent = format(m.notune.map50);
-    DOM.notuneMap5095.textContent = format(m.notune.map50_95);
-    
-    DOM.yestuneRecall.textContent = format(m.yestune.recall);
-    DOM.yestuneMap50.textContent = format(m.yestune.map50);
-    DOM.yestuneMap5095.textContent = format(m.yestune.map50_95);
+    models.forEach((m, idx) => {
+        // We assume index 0 -> model_a, index 1 -> model_b
+        const sideId = idx === 0 ? 'model_a' : 'model_b';
+        
+        // Update Title & Tooltip
+        const titleEl = document.getElementById(`${sideId}-title`);
+        if (titleEl) {
+            titleEl.textContent = m.title;
+            titleEl.setAttribute('data-tooltip', m.tooltip);
+        }
+        
+        // Update Metrics
+        const recallEl = document.getElementById(`${sideId}-recall`);
+        const map50El = document.getElementById(`${sideId}-map50`);
+        const map5095El = document.getElementById(`${sideId}-map5095`);
+        
+        if (recallEl) recallEl.textContent = format(m.metrics.recall);
+        if (map50El) map50El.textContent = format(m.metrics.map50);
+        if (map5095El) map5095El.textContent = format(m.metrics.map50_95);
+    });
 }
 
 function updateView() {
@@ -65,9 +71,13 @@ function updateView() {
     DOM.filename.textContent = imgName;
     DOM.progressInfo.textContent = `Image: ${currentIndex + 1} / ${images.length}`;
     
-    // Force image reload cleanly to avoid flickering if possible
-    DOM.notuneImg.src = `results/patience15_old/${imgName}`;
-    DOM.yestuneImg.src = `results/patience100_new/${imgName}`;
+    modelsInfo.forEach((m, idx) => {
+        const sideId = idx === 0 ? 'model_a' : 'model_b';
+        const imgEl = document.getElementById(`${sideId}-img`);
+        if (imgEl) {
+            imgEl.src = `results/${m.result_dir}/${imgName}`;
+        }
+    });
 }
 
 // Navigation

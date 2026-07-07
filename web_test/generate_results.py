@@ -1,7 +1,6 @@
 """웹 뷰어를 위한 모델 추론 결과 생성 스크립트.
 
-튜닝 이전 모델(K-Fold 5개 WBF 앙상블)과 튜닝 이후 모델(K-Fold 5개 WBF 앙상블)의 
-test 세트 추론 결과를 이미지로 저장하고,
+다양한 모델 설정(단일/앙상블)의 test 세트 추론 결과를 이미지로 저장하고,
 torchmetrics를 통해 mAP를 직접 계산하여 
 웹 UI에서 사용할 메타데이터(data.js)를 생성합니다.
 """
@@ -20,6 +19,56 @@ from tqdm import tqdm
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(PROJECT_ROOT / "src"))
 from utils import load_config, get_paths
+
+# ==========================================
+# 평가할 모델 설정 (단일 모델 또는 앙상블)
+# 배열에 있는 모델들이 웹 뷰어에서 순서대로 보여집니다.
+# 단일 모델의 경우 weights 배열에 1개의 경로만 입력하세요.
+# 다중 모델(앙상블)의 경우 weights 배열에 여러 개의 경로를 입력하면 자동 WBF 적용됩니다.
+# ==========================================
+MODELS_TO_EVALUATE = [
+    {
+        "id": "model_a",
+        "title": "No-Tune 0-KFold (300 Epoch)",
+        "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+        "result_dir": "model_a_results",
+        "weights": [
+            PROJECT_ROOT / "weights" / "new_v8n_notune_721_0kfold_300epoch_100patience" / "weights" / "best.pt"
+        ]
+    },
+    {
+        "id": "model_b",
+        "title": "Yes-Tune 0-KFold (300 Epoch)",
+        "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+        "result_dir": "model_b_results",
+        "weights": [
+            PROJECT_ROOT / "weights" / "new_v8n_yestune_721_0kfold_300epoch_100patience" / "weights" / "best.pt"
+        ]
+    }
+]
+
+# (참고) 기존 5-Fold 앙상블 설정 백업
+# MODELS_TO_EVALUATE = [
+#     {
+#         "id": "model_a",
+#         "title": "300 Epoch 100 Patience Ensemble (5-Folds)",
+#         "tooltip": "300 Epoch, 100 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.",
+#         "result_dir": "model_a_results",
+#         "weights": [
+#             PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_300epoch_100patience" / "weights" / f"best_fold_{i}.pt" for i in range(1, 6)
+#         ]
+#     },
+#     {
+#         "id": "model_b",
+#         "title": "500 Epoch 100 Patience Ensemble (5-Folds)",
+#         "tooltip": "500 Epoch, 100 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.",
+#         "result_dir": "model_b_results",
+#         "weights": [
+#             PROJECT_ROOT / "weights" / f"best_fold_{i}.pt" for i in range(1, 6)
+#         ]
+#     }
+# ]
+# ==========================================
 
 def yolo2xyxy(x, y, w, h, img_w, img_h):
     x1 = (x - w/2) * img_w
@@ -56,36 +105,48 @@ def draw_boxes(img, boxes, scores, labels, class_names):
         cv2.putText(img, text, (x1, y1 - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
     return img
 
-def run_wbf(models, img, conf_thres, iou_thres, img_w, img_h, class_names):
-    all_boxes_norm = []
-    all_scores = []
-    all_labels = []
-    
-    for m in models:
-        res = m.predict(img, conf=conf_thres, iou=iou_thres, verbose=False, device='cpu')[0]
+def run_inference(models, img, conf_thres, iou_thres, img_w, img_h, class_names):
+    if len(models) == 1:
+        # 단일 모델 추론
+        res = models[0].predict(img, conf=conf_thres, iou=iou_thres, verbose=False, device='cpu')[0]
         if len(res.boxes) > 0:
-            boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
+            boxes_abs = res.boxes.xyxy.cpu().numpy().tolist()
             scores = res.boxes.conf.cpu().numpy().tolist()
             labels = res.boxes.cls.cpu().numpy().astype(int).tolist()
-            all_boxes_norm.append(boxes_norm)
-            all_scores.append(scores)
-            all_labels.append(labels)
         else:
-            all_boxes_norm.append([])
-            all_scores.append([])
-            all_labels.append([])
-            
-    if any(len(b) > 0 for b in all_boxes_norm):
-        boxes_wbf, scores_wbf, labels_wbf = weighted_boxes_fusion(
-            all_boxes_norm, all_scores, all_labels, weights=None, iou_thr=iou_thres, skip_box_thr=conf_thres
-        )
+            boxes_abs, scores, labels = [], [], []
+        return boxes_abs, scores, labels
     else:
-        boxes_wbf, scores_wbf, labels_wbf = [], [], []
+        # WBF 앙상블 추론
+        all_boxes_norm = []
+        all_scores = []
+        all_labels = []
         
-    boxes_abs = [norm2xyxy(x1, y1, x2, y2, img_w, img_h) for x1, y1, x2, y2 in boxes_wbf]
-    labels_out = [int(l) for l in labels_wbf]
-    
-    return boxes_abs, scores_wbf, labels_out
+        for m in models:
+            res = m.predict(img, conf=conf_thres, iou=iou_thres, verbose=False, device='cpu')[0]
+            if len(res.boxes) > 0:
+                boxes_norm = res.boxes.xyxyn.cpu().numpy().tolist()
+                scores = res.boxes.conf.cpu().numpy().tolist()
+                labels = res.boxes.cls.cpu().numpy().astype(int).tolist()
+                all_boxes_norm.append(boxes_norm)
+                all_scores.append(scores)
+                all_labels.append(labels)
+            else:
+                all_boxes_norm.append([])
+                all_scores.append([])
+                all_labels.append([])
+                
+        if any(len(b) > 0 for b in all_boxes_norm):
+            boxes_wbf, scores_wbf, labels_wbf = weighted_boxes_fusion(
+                all_boxes_norm, all_scores, all_labels, weights=None, iou_thr=iou_thres, skip_box_thr=conf_thres
+            )
+        else:
+            boxes_wbf, scores_wbf, labels_wbf = [], [], []
+            
+        boxes_abs = [norm2xyxy(x1, y1, x2, y2, img_w, img_h) for x1, y1, x2, y2 in boxes_wbf]
+        labels_out = [int(l) for l in labels_wbf]
+        
+        return boxes_abs, scores_wbf, labels_out
 
 def generate_predictions():
     cfg = load_config(str(PROJECT_ROOT / "config.yaml"))
@@ -103,35 +164,36 @@ def generate_predictions():
 
     web_dir = PROJECT_ROOT / "web_test"
     results_dir = web_dir / "results"
-    notune_dir = results_dir / "patience15_old"
-    yestune_dir = results_dir / "patience100_new"
     
-    for d in [notune_dir, yestune_dir]:
+    print("\n[INFO] 모델 로딩 중...")
+    
+    for cfg_model in MODELS_TO_EVALUATE:
+        d = results_dir / cfg_model["result_dir"]
         if d.exists():
             shutil.rmtree(d, ignore_errors=True)
         d.mkdir(parents=True, exist_ok=True)
-
-    print("\n[INFO] 모델 로딩 중...")
-    
-    notune_models = []
-    for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_150epoch_15patience_old" / "v8n_notune_721_5kfold_150epoch" / "weights" / f"best_fold_{i}.pt"
-        notune_models.append(YOLO(str(m_path)))
-
-    yestune_models = []
-    for i in range(1, 6):
-        m_path = PROJECT_ROOT / "weights" / "v8n_notune_721_5kfold_300epoch_100patience" / "weights" / f"best_fold_{i}.pt"
-        yestune_models.append(YOLO(str(m_path)))
         
-    class_names = notune_models[0].names
+        models_list = []
+        for w_path in cfg_model["weights"]:
+            if not Path(w_path).exists():
+                print(f"[WARNING] Weights not found: {w_path}")
+                continue
+            models_list.append(YOLO(str(w_path)))
+            
+        if not models_list:
+            print(f"[ERROR] Model {cfg_model['id']} failed to load any weights.")
+            sys.exit(1)
+            
+        cfg_model["loaded_models"] = models_list
+        cfg_model["metric_calculator"] = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
+        
+    # Get class names from the first loaded model
+    class_names = MODELS_TO_EVALUATE[0]["loaded_models"][0].names
 
-    metric_notune = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
-    metric_yestune = MeanAveragePrecision(box_format='xyxy', iou_type='bbox')
-    
     conf_thres = cfg["judge"]["conf_threshold"]
     iou_thres = cfg["judge"]["iou_threshold"]
 
-    print("\n[INFO] 추론 및 WBF 앙상블 적용 중...")
+    print("\n[INFO] 추론 중...")
     
     for img_name in tqdm(image_files, desc="Processing Test Images"):
         img_path = str(test_images_dir / img_name)
@@ -145,63 +207,48 @@ def generate_predictions():
             labels=torch.tensor(gt_labels, dtype=torch.int64) if gt_labels else torch.empty((0,), dtype=torch.int64)
         )]
         
-        # No-Tune Inference (Old)
-        n_boxes_abs, n_scores, n_labels = run_wbf(notune_models, img, conf_thres, iou_thres, img_w, img_h, class_names)
-        
-        img_notune = draw_boxes(img.copy(), n_boxes_abs, n_scores, n_labels, class_names)
-        cv2.imwrite(str(notune_dir / img_name), img_notune)
-        
-        pred_notune = [dict(
-            boxes=torch.tensor(n_boxes_abs, dtype=torch.float32) if len(n_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
-            scores=torch.tensor(n_scores, dtype=torch.float32) if len(n_scores) else torch.empty((0,), dtype=torch.float32),
-            labels=torch.tensor(n_labels, dtype=torch.int64) if len(n_labels) else torch.empty((0,), dtype=torch.int64)
-        )]
-        metric_notune.update(pred_notune, target)
-        
-        # Yes-Tune Inference (New)
-        y_boxes_abs, y_scores, y_labels = run_wbf(yestune_models, img, conf_thres, iou_thres, img_w, img_h, class_names)
-        
-        img_yestune = draw_boxes(img.copy(), y_boxes_abs, y_scores, y_labels, class_names)
-        cv2.imwrite(str(yestune_dir / img_name), img_yestune)
-        
-        pred_yestune = [dict(
-            boxes=torch.tensor(y_boxes_abs, dtype=torch.float32) if len(y_boxes_abs) else torch.empty((0, 4), dtype=torch.float32),
-            scores=torch.tensor(y_scores, dtype=torch.float32) if len(y_scores) else torch.empty((0,), dtype=torch.float32),
-            labels=torch.tensor(y_labels, dtype=torch.int64) if len(y_labels) else torch.empty((0,), dtype=torch.int64)
-        )]
-        metric_yestune.update(pred_yestune, target)
+        for cfg_model in MODELS_TO_EVALUATE:
+            models = cfg_model["loaded_models"]
+            b_abs, scores, labels = run_inference(models, img, conf_thres, iou_thres, img_w, img_h, class_names)
+            
+            img_drawn = draw_boxes(img.copy(), b_abs, scores, labels, class_names)
+            cv2.imwrite(str(results_dir / cfg_model["result_dir"] / img_name), img_drawn)
+            
+            pred = [dict(
+                boxes=torch.tensor(b_abs, dtype=torch.float32) if len(b_abs) else torch.empty((0, 4), dtype=torch.float32),
+                scores=torch.tensor(scores, dtype=torch.float32) if len(scores) else torch.empty((0,), dtype=torch.float32),
+                labels=torch.tensor(labels, dtype=torch.int64) if len(labels) else torch.empty((0,), dtype=torch.int64)
+            )]
+            cfg_model["metric_calculator"].update(pred, target)
 
     print("\n[INFO] 평가지표(mAP) 계산 중... (수 분이 소요될 수 있습니다)")
-    notune_res = metric_notune.compute()
-    yestune_res = metric_yestune.compute()
     
     def m(val): return float(val.item()) if hasattr(val, 'item') else float(val)
     
-    print("\n=== 15 Patience Ensemble Old (WBF) ===")
-    print(f"Recall:    {m(notune_res['mar_100']):.4f}")
-    print(f"mAP@0.5:   {m(notune_res['map_50']):.4f}")
-    print(f"mAP@50-95: {m(notune_res['map']):.4f}")
-    
-    print("\n=== 100 Patience Ensemble New (WBF) ===")
-    print(f"Recall:    {m(yestune_res['mar_100']):.4f}")
-    print(f"mAP@0.5:   {m(yestune_res['map_50']):.4f}")
-    print(f"mAP@50-95: {m(yestune_res['map']):.4f}")
-
     results_data = {
         "images": image_files,
-        "metrics": {
-            "notune": {
-                "recall": m(notune_res['mar_100']),
-                "map50": m(notune_res['map_50']),
-                "map50_95": m(notune_res['map'])
-            },
-            "yestune": {
-                "recall": m(yestune_res['mar_100']),
-                "map50": m(yestune_res['map_50']),
-                "map50_95": m(yestune_res['map'])
-            }
-        }
+        "models": []
     }
+    
+    for cfg_model in MODELS_TO_EVALUATE:
+        res = cfg_model["metric_calculator"].compute()
+        
+        print(f"\n=== {cfg_model['title']} ===")
+        print(f"Recall:    {m(res['mar_100']):.4f}")
+        print(f"mAP@0.5:   {m(res['map_50']):.4f}")
+        print(f"mAP@50-95: {m(res['map']):.4f}")
+        
+        results_data["models"].append({
+            "id": cfg_model["id"],
+            "title": cfg_model["title"],
+            "tooltip": cfg_model["tooltip"],
+            "result_dir": cfg_model["result_dir"],
+            "metrics": {
+                "recall": m(res['mar_100']),
+                "map50": m(res['map_50']),
+                "map50_95": m(res['map'])
+            }
+        })
     
     with open(results_dir / "data.js", "w", encoding="utf-8") as f:
         f.write("const RESULTS_DATA = ")
