@@ -30,6 +30,40 @@ train:
   patience: 100
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: ram
+train_tune:
+  imgsz: 1280
+  batch: -1
+  epochs: 500
+  model: weights/yolov8n.pt
+  patience: 100
+  device: 0
+  cache: ram
+  lr0: 0.00685
+  lrf: 0.01249
+  momentum: 0.90303
+  weight_decay: 0.00065
+  warmup_epochs: 3.06163
+  warmup_momentum: 0.62303
+  box: 10.32546
+  cls: 0.66305
+  cls_pw: 0.00289
+  dfl: 1.49476
+  hsv_h: 0.01517
+  hsv_s: 0.75373
+  hsv_v: 0.24641
+  degrees: 0.00153
+  translate: 0.01077
+  scale: 0.16703
+  shear: 0.00119
+  perspective: 0.0
+  flipud: 0.00264
+  fliplr: 0.19774
+  bgr: 0.0148
+  mosaic: 0.60328
+  mixup: 0.01208
+  cutmix: 0.00419
+  copy_paste: 0.00164
+  close_mosaic: 10
 tune:
   imgsz: 1280
   batch: -1
