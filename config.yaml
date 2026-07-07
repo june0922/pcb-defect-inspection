@@ -26,7 +26,7 @@ train:
   imgsz: 1280
   batch: -1
   epochs: 500
-  model: weights/yolov8n.pt
+  model: weights/yolo26n.pt
   patience: 100
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: ram
@@ -34,7 +34,7 @@ train_tune:
   imgsz: 1280
   batch: -1
   epochs: 500
-  model: weights/yolov8n.pt
+  model: weights/yolo26n.pt
   patience: 100
   device: 0
   cache: ram
@@ -69,7 +69,7 @@ tune:
   batch: -1
   epochs: 50
   iterations: 100
-  model: weights/yolov8n.pt
+  model: weights/yolo26n.pt
   patience: 15
   device: 0
   cache: ram
