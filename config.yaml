@@ -24,7 +24,7 @@ split:
   val: 0.2
 train:
   imgsz: 1280
-  batch: -1
+  batch: 16
   epochs: 500
   model: weights/yolo26n.pt
   patience: 100
@@ -32,7 +32,7 @@ train:
   cache: ram
 train_tune:
   imgsz: 1280
-  batch: -1
+  batch: 16
   epochs: 500
   model: weights/yolo26n.pt
   patience: 100
