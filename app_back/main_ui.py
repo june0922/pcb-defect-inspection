@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
     QApplication, QAction, QShortcut, QDialog, QFormLayout, QDialogButtonBox, QSpinBox, QDoubleSpinBox
 )
-from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot
+from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence
 )
@@ -26,6 +26,16 @@ from inference_worker import InferenceWorker
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
+sys.path.insert(0, str(_PROJECT_ROOT))
+
+# ── DB 연동 (실패해도 앱 동작 유지) ────────
+try:
+    from db.api_client import client as _db_client
+    _DB_ENABLED = True
+except Exception as _e:
+    print(f"[DB] 연동 비활성화: {_e}")
+    _db_client = None
+    _DB_ENABLED = False
 
 
 # ── 데이터 모델 ───────────────────────────────────────────────
@@ -156,9 +166,17 @@ class MainWindow(QMainWindow):
         self._worker: InferenceWorker | None = None
         
         self._current_folder = None
-        self._edited_images: dict[str, np.ndarray] = {}  # 편집된 이미지 캐시 (경로→ndarray)
+        self._edited_images: dict[str, np.ndarray] = {}
         self._settings_file = Path(__file__).parent / "settings.json"
         self._app_settings = self._load_settings()
+
+        # DB 리뷰 모드
+        self._db_mode: bool = False
+        self._db_poll_timer = QTimer(self)
+        self._db_poll_timer.setInterval(5000)  # 5초마다 폴링
+        self._db_poll_timer.timeout.connect(self._poll_db_tiles)
+        self._db_shown_tile_ids: set[str] = set()  # 이미 표시한 tile_id 중복 방지
+        self._db_last_since: str | None = None      # 마지막 폴링 시각
 
         self._init_ui()
         self._init_menu()
@@ -304,6 +322,13 @@ class MainWindow(QMainWindow):
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._select_folder_and_start)
         file_menu.addAction(open_action)
+
+        db_action = QAction("DB 리뷰 모드 (실시간)...", self)
+        db_action.setShortcut("Ctrl+D")
+        db_action.triggered.connect(self._start_db_review_mode)
+        file_menu.addAction(db_action)
+
+        file_menu.addSeparator()
 
         save_action = QAction("Save Results...", self)
         save_action.setShortcut("Ctrl+S")
@@ -849,6 +874,153 @@ class MainWindow(QMainWindow):
         if reply == QMessageBox.Yes:
             self._save_results()
 
+    # ── DB 리뷰 모드 ───────────────────────────────────────────
+
+    def _start_db_review_mode(self):
+        """Ctrl+D — DB 서버에 연결해 FAIL/REVIEW 타일을 실시간으로 수신."""
+        if not _DB_ENABLED:
+            QMessageBox.warning(self, "DB 비활성화",
+                                "SQLAlchemy 또는 requests 패키지가 설치되지 않았습니다.")
+            return
+
+        # 서버 URL 입력
+        from PyQt5.QtWidgets import QInputDialog
+        url, ok = QInputDialog.getText(
+            self, "DB 서버 주소",
+            "DB 서버 URL을 입력하세요:",
+            text=_db_client._url,
+        )
+        if not ok or not url.strip():
+            return
+
+        _db_client.set_server_url(url.strip())
+
+        if not _db_client.is_server_alive():
+            QMessageBox.critical(self, "연결 실패",
+                                 f"서버에 연결할 수 없습니다:\n{url}\n\n"
+                                 "db_server가 실행 중인지 확인하세요.")
+            return
+
+        # 기존 상태 초기화
+        self._stop_db_review_mode()
+        self._defects.clear()
+        self._filmstrip.clear()
+        self._current_index = -1
+        self._db_shown_tile_ids.clear()
+        self._db_last_since = None
+        self._db_mode = True
+
+        # 즉시 1회 폴링 후 타이머 시작
+        self._poll_db_tiles()
+        self._db_poll_timer.start()
+        self._status_label.setText(
+            f"[DB 리뷰 모드] {url} 연결됨 — 5초마다 갱신"
+        )
+
+    def _stop_db_review_mode(self):
+        self._db_poll_timer.stop()
+        self._db_mode = False
+
+    def _poll_db_tiles(self):
+        """5초마다 호출 — 새 FAIL/REVIEW 타일을 서버에서 가져와 필름스트립에 추가."""
+        if not _DB_ENABLED or not self._db_mode:
+            return
+        try:
+            tiles = _db_client.fetch_new_tiles(
+                verdict="FAIL,REVIEW",
+                since=self._db_last_since,
+            )
+        except Exception as e:
+            self._status_label.setText(f"[DB 리뷰 모드] 폴링 오류: {e}")
+            return
+
+        new_count = 0
+        for tile in tiles:
+            tid = tile.get("tile_id", "")
+            if tid in self._db_shown_tile_ids:
+                continue
+            self._db_shown_tile_ids.add(tid)
+            self._db_last_since = tile.get("inspected_at") or self._db_last_since
+
+            # 타일 이미지 추출 (board file_path + row/col)
+            crop_bgr = self._extract_tile_crop(tile)
+            if crop_bgr is None:
+                continue
+
+            det = tile["detections"][0] if tile["detections"] else {
+                "class_name": "unknown", "class_id": 0,
+                "confidence": tile.get("max_confidence", 0.0),
+                "bbox_abs": [0, 0, 64, 64],
+            }
+
+            pixmap = self._create_thumbnail(crop_bgr, BORDER_COLORS["pending"])
+            entry = DefectEntry(
+                defect_id=len(self._defects),
+                image_path=tile.get("board_file_path", ""),
+                detection=det,
+                all_detections=tile["detections"],
+                detection_index=0,
+                crop_bgr=crop_bgr,
+                crop_pixmap=pixmap,
+            )
+            # tile_id를 image_path 필드에 추가로 저장 (저장 시 필요)
+            entry._tile_id = tid
+            entry._verdict_from_db = tile.get("verdict", "FAIL")
+
+            self._defects.append(entry)
+
+            item = QListWidgetItem()
+            item.setIcon(QIcon(pixmap))
+            item.setSizeHint(QSize(THUMB_SIZE + 8, THUMB_SIZE + 8))
+            conf = tile.get("max_confidence", 0.0)
+            item.setToolTip(
+                f"[{tile['verdict']}] Row {tile['row']}, Col {tile['col']}\n"
+                f"Conf: {conf:.2f}\n{tile.get('board_filename','')}"
+            )
+            self._filmstrip.addItem(item)
+            new_count += 1
+
+        if new_count > 0:
+            total = len(self._defects)
+            pending = sum(1 for d in self._defects if d.verdict == "pending")
+            self._status_label.setText(
+                f"[DB 리뷰 모드] 타일 {total}건 수신 | 미검토 {pending}건"
+            )
+            if self._current_index == -1:
+                self._filmstrip.setCurrentRow(0)
+        else:
+            pending = sum(1 for d in self._defects if d.verdict == "pending")
+            self._status_label.setText(
+                f"[DB 리뷰 모드] 대기 중... | 미검토 {pending}건"
+            )
+
+    def _extract_tile_crop(self, tile: dict) -> "np.ndarray | None":
+        """board_file_path와 row/col로 타일 이미지 추출 (640px 단위)."""
+        TILE_SIZE = 640
+        file_path = tile.get("board_file_path", "")
+        if not file_path or not Path(file_path).exists():
+            # file_path가 없으면 board_filename으로 merged_data/ 탐색
+            fname = tile.get("board_filename", "")
+            candidate = _PROJECT_ROOT / "merged_data" / fname
+            if not candidate.exists():
+                return None
+            file_path = str(candidate)
+
+        img = cv2.imread(file_path, cv2.IMREAD_UNCHANGED)
+        if img is None:
+            return None
+
+        row, col = tile.get("row", 0), tile.get("col", 0)
+        h, w = img.shape[:2]
+        y1, x1 = row * TILE_SIZE, col * TILE_SIZE
+        y2, x2 = min(y1 + TILE_SIZE, h), min(x1 + TILE_SIZE, w)
+        crop = img[y1:y2, x1:x2]
+
+        if len(crop.shape) == 2:
+            crop = cv2.cvtColor(crop, cv2.COLOR_GRAY2BGR)
+
+        return cv2.resize(crop, (THUMB_SIZE, THUMB_SIZE))
+
     # ── 결과 저장 ──────────────────────────────────────────────
 
     def _save_results(self):
@@ -858,6 +1030,8 @@ class MainWindow(QMainWindow):
         )
         if not path:
             return
+
+        DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
         results = []
         for d in self._defects:
@@ -872,6 +1046,114 @@ class MainWindow(QMainWindow):
 
         with open(path, "w", encoding="utf-8") as f:
             json.dump(results, f, ensure_ascii=False, indent=2)
+
+        # ── DB 저장 (DB 리뷰 모드: 리뷰 결과만 upsert) ──────────
+        if _DB_ENABLED and self._db_mode:
+            try:
+                DEFECT_CLASSES = ["open","short","mousebite","spur","copper","pinhole"]
+                for d in self._defects:
+                    tile_id = getattr(d, "_tile_id", None)
+                    if not tile_id or d.verdict == "pending":
+                        continue
+                    if d.verdict == "pass":
+                        _db_client.upsert_review(tile_id, "PASS", None)
+                    elif d.verdict.isdigit():
+                        idx = int(d.verdict) - 1
+                        cls = DEFECT_CLASSES[idx] if 0 <= idx < len(DEFECT_CLASSES) else None
+                        _db_client.upsert_review(tile_id, "FAIL", cls)
+                self._status_label.setText(f"[DB] 리뷰 결과 저장 완료 + {path}")
+            except Exception as e:
+                print(f"[DB] 리뷰 저장 실패: {e}")
+            return
+
+        # ── DB 저장 (폴더 모드) ───────────────────────────────────
+        if _DB_ENABLED and self._defects:
+            try:
+                min_conf = self._app_settings.get("min_conf", 40) / 100.0
+                max_conf = self._app_settings.get("max_conf", 90) / 100.0
+                iou_thresh = self._app_settings.get("iou_thresh", 0.45)
+
+                sid = _db_writer.create_session(
+                    source="app_back",
+                    target_folder=self._current_folder or "",
+                    pass_threshold=min_conf,
+                    fail_threshold=max_conf,
+                    iou_threshold=iou_thresh,
+                )
+
+                # 이미지별로 묶어서 Board + TileInspection + Detection + Review 생성
+                from collections import defaultdict
+                by_image: dict[str, list] = defaultdict(list)
+                for d in self._defects:
+                    by_image[d.image_path].append(d)
+
+                pass_n = fail_n = 0
+                for img_path, entries in by_image.items():
+                    bid = _db_writer.create_board(
+                        session_id=sid,
+                        filename=Path(img_path).name,
+                        file_path=img_path,
+                        grid_rows=1,
+                        grid_cols=1,
+                    )
+
+                    # 전체 이미지 단위 판정 (가장 심각한 verdict 기준)
+                    verdicts = [e.verdict for e in entries]
+                    if any(v.isdigit() for v in verdicts):
+                        tile_verdict = "FAIL"
+                        fail_n += 1
+                    else:
+                        tile_verdict = "PASS"
+                        pass_n += 1
+
+                    max_conf_val = max(
+                        (e.detection.get("confidence", 0.0) for e in entries),
+                        default=0.0,
+                    )
+
+                    tile_id = _db_writer.create_tile(
+                        board_id=bid,
+                        row=0, col=0,
+                        verdict=tile_verdict,
+                        max_confidence=max_conf_val,
+                        inference_ms=0.0,
+                        scan_order=0,
+                        detections=[e.detection for e in entries],
+                    )
+
+                    # Review row — 대표 결함 클래스 (가장 높은 confidence의 FAIL 결함)
+                    fail_entries = [e for e in entries if e.verdict.isdigit()]
+                    if fail_entries:
+                        best = max(fail_entries,
+                                   key=lambda e: e.detection.get("confidence", 0.0))
+                        idx = int(best.verdict) - 1
+                        defect_cls = DEFECT_CLASSES[idx] if 0 <= idx < len(DEFECT_CLASSES) else None
+                        final_verdict = "FAIL"
+                    else:
+                        defect_cls = None
+                        final_verdict = "PASS"
+
+                    _db_writer.upsert_review(
+                        tile_id=tile_id,
+                        final_verdict=final_verdict,
+                        final_defect_class=defect_cls,
+                        reviewer="operator",
+                    )
+
+                total = len(by_image)
+                _db_writer.update_session_summary(
+                    session_id=sid,
+                    total_tiles=total,
+                    pass_count=pass_n,
+                    fail_count=fail_n,
+                    review_count=0,
+                    fpy=round(pass_n / total * 100, 2) if total > 0 else 0.0,
+                    avg_inference_ms=0.0,
+                    throughput=0.0,
+                )
+                print(f"[DB] app_back 결과 저장 완료 (세션: {sid[:8]}...)")
+            except Exception as e:
+                print(f"[DB] 저장 실패: {e}")
 
         self._status_label.setText(f"Results saved: {path}")
 
@@ -1047,7 +1329,8 @@ class MainWindow(QMainWindow):
     # ── 종료 처리 ──────────────────────────────────────────────
 
     def closeEvent(self, event):
-        """앱 종료 시 Worker 스레드 안전 정리."""
+        """앱 종료 시 Worker 스레드 및 타이머 안전 정리."""
+        self._db_poll_timer.stop()
         if self._worker and self._worker.isRunning():
             self._worker.stop()
             self._worker.wait(3000)

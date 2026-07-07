@@ -32,6 +32,16 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
+# ── DB 연동 (실패해도 앱 동작은 유지) ──────────
+import sys as _sys
+_sys.path.insert(0, str(_PROJECT_ROOT))
+try:
+    from db.api_client import client as _db_writer
+    _DB_ENABLED = True
+except Exception as _e:
+    print(f"[DB] 연동 비활성화 (설치 확인 필요): {_e}")
+    _DB_ENABLED = False
+
 # ── 상수 ───────────────────────────────────
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
@@ -152,6 +162,11 @@ class MainWindow(QMainWindow):
         self._tile_count: int = 0
         self._log_path: Path | None = None
         self._log_flush_counter: int = 0
+
+        # DB 연동 상태
+        self._db_session_id: str | None = None
+        self._db_board_id: str | None = None
+        self._db_last_image_index: int = -1
 
         # 통계 카운터
         self._stats = {
@@ -537,6 +552,22 @@ class MainWindow(QMainWindow):
         self._worker.progress.connect(self._on_progress)
         self._worker.error.connect(self._on_error)
 
+        # DB 세션 생성
+        self._db_session_id = None
+        self._db_board_id = None
+        self._db_last_image_index = -1
+        if _DB_ENABLED:
+            try:
+                self._db_session_id = _db_writer.create_session(
+                    source="app_front",
+                    target_folder=folder,
+                    pass_threshold=pass_thresh,
+                    fail_threshold=fail_thresh,
+                    iou_threshold=iou_thresh,
+                )
+            except Exception as e:
+                print(f"[DB] 세션 생성 실패: {e}")
+
         # JSON 로그 초기화
         self._init_log(folder, image_paths)
 
@@ -630,6 +661,34 @@ class MainWindow(QMainWindow):
         if verdict == "FAIL" and self._app_settings.get("alert_sound", True):
             self._play_alert_sound()
 
+        # DB 기록
+        if _DB_ENABLED and self._db_session_id:
+            try:
+                # 새 보드 시작 시 Board row 생성
+                if img_index != self._db_last_image_index:
+                    self._db_last_image_index = img_index
+                    self._db_board_id = _db_writer.create_board(
+                        session_id=self._db_session_id,
+                        filename=result["image_file"],
+                        file_path=result.get("image_path", ""),
+                        grid_rows=rows,
+                        grid_cols=cols,
+                    )
+                # TileInspection + Detection
+                if self._db_board_id:
+                    _db_writer.create_tile(
+                        board_id=self._db_board_id,
+                        row=row,
+                        col=col,
+                        verdict=verdict,
+                        max_confidence=max_conf,
+                        inference_ms=inference_ms,
+                        scan_order=result["scan_order"],
+                        detections=detections,
+                    )
+            except Exception as e:
+                print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
+
         # JSON 로그 기록
         self._log_tile_result(result)
         self._log_flush_counter += 1
@@ -651,6 +710,37 @@ class MainWindow(QMainWindow):
         self._global_view.clear_camera()
         self._flush_log()
         self._update_statistics_display()
+
+        # DB 세션 요약 업데이트
+        if _DB_ENABLED and self._db_session_id:
+            try:
+                inspected = self._stats["inspected"]
+                elapsed = (
+                    time.time() - self._inspection_start_time
+                    if self._inspection_start_time > 0 else 0
+                )
+                throughput = inspected / elapsed * 60 if elapsed > 0 else 0.0
+                avg_ms = (
+                    sum(self._inference_times) / len(self._inference_times)
+                    if self._inference_times else 0.0
+                )
+                fpy = (
+                    self._stats["pass"] / inspected * 100
+                    if inspected > 0 else 0.0
+                )
+                _db_writer.update_session_summary(
+                    session_id=self._db_session_id,
+                    total_tiles=self._stats["total_tiles"],
+                    pass_count=self._stats["pass"],
+                    fail_count=self._stats["fail"],
+                    review_count=self._stats["review"],
+                    fpy=round(fpy, 2),
+                    avg_inference_ms=round(avg_ms, 1),
+                    throughput=round(throughput, 2),
+                )
+            except Exception as e:
+                print(f"[DB] 세션 요약 업데이트 실패: {e}")
+
         self._status_label.setText(
             f"Inspection complete. {self._stats['inspected']} tiles inspected."
         )
