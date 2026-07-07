@@ -127,13 +127,13 @@ const RESULTS_DATA = {
     },
     {
       "id": "model_b",
-      "title": "Yes-Tune 0-KFold (300 Epoch)",
+      "title": "No-Tune 0-KFold (500 Epoch)",
       "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
       "result_dir": "model_b_results",
       "metrics": {
-        "recall": 0.860369861125946,
-        "map50": 0.9661229252815247,
-        "map50_95": 0.8313073515892029
+        "recall": 0.8613133430480957,
+        "map50": 0.9661779403686523,
+        "map50_95": 0.8077377676963806
       }
     }
   ]

@@ -38,11 +38,11 @@ MODELS_TO_EVALUATE = [
     },
     {
         "id": "model_b",
-        "title": "Yes-Tune 0-KFold (300 Epoch)",
+        "title": "No-Tune 0-KFold (500 Epoch)",
         "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
         "result_dir": "model_b_results",
         "weights": [
-            PROJECT_ROOT / "weights" / "new_v8n_yestune_721_0kfold_300epoch_100patience" / "weights" / "best.pt"
+            PROJECT_ROOT / "weights" / "new_v8n_notune_721_0kfold_500epoch_100patience" / "weights" / "best.pt"
         ]
     }
 ]
