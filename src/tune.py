@@ -111,7 +111,7 @@ def main(config_path: str = "config.yaml") -> None:
         project=str(paths["runs"]),
         name="tune",
         resume=should_resume,
-        use_ray=False,
+        use_ray=True,
         verbose=False,
         **tune_args
     )
