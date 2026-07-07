@@ -93,3 +93,13 @@ echo "K-Fold Training Execution Finished."
 echo "Results saved to: runs/kfold/"
 echo "Weights saved to: weights/best_fold_1.pt ~ best_fold_N.pt"
 echo "========================================================"
+
+if [ -n "$TMUX" ]; then
+    echo "Running in tmux. The session will automatically close in 10 seconds."
+    echo "Press Ctrl+C to cancel and keep the session open."
+    sleep 10
+    tmux kill-session
+else
+    echo "The script will exit in 10 seconds. Press Ctrl+C to cancel."
+    sleep 10
+fi

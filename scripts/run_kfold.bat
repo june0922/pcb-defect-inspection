@@ -101,4 +101,9 @@ echo K-Fold Training Execution Finished.
 echo Results saved to: runs\kfold\
 echo Weights saved to: weights\best_fold_1.pt ~ best_fold_N.pt
 echo ========================================================
-pause
+echo The terminal will automatically close in 10 seconds.
+echo Press Ctrl+C to cancel and keep the window open.
+timeout /t 10
+if errorlevel 0 (
+    exit
+)
