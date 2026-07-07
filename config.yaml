@@ -67,10 +67,10 @@ train_tune:
 tune:
   imgsz: 1280
   batch: -1
-  epochs: 30
+  epochs: 50
   iterations: 300
   model: weights/yolov8n.pt
-  patience: 50
+  patience: 15
   device: 0
   cache: ram
 kfold:
