@@ -147,7 +147,7 @@ def split_dataset(
     print(f"[split] train={len(train)} ({len(train)/total*100:.1f}%), "
           f"val={len(val)} ({len(val)/total*100:.1f}%), "
           f"test={len(test)} ({len(test)/total*100:.1f}%)")
-    print(f"[split] ✅ 그룹 겹침 없음 확인 완료")
+    print(f"[split]  그룹 겹침 없음 확인 완료")
 
     return train, val, test
 
