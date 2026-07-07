@@ -24,7 +24,7 @@ split:
   val: 0.2
 train:
   imgsz: 1280
-  batch: -1
+  batch: 16
   epochs: 500
   model: weights/yolo26n.pt
   patience: 100
@@ -32,7 +32,7 @@ train:
   cache: ram
 train_tune:
   imgsz: 1280
-  batch: -1
+  batch: 16
   epochs: 500
   model: weights/yolo26n.pt
   patience: 100
@@ -66,11 +66,11 @@ train_tune:
   close_mosaic: 10
 tune:
   imgsz: 1280
-  batch: -1
+  batch: 16
   epochs: 50
   iterations: 100
   model: weights/yolo26n.pt
-  patience: 15
+  patience: 0
   device: 0
   cache: ram
 kfold:
