@@ -14,55 +14,55 @@
     </header>
 
     <main class="viewer-container">
-        <!-- Baseline Panel (Left) -->
+        <!-- Model A Panel (Left) -->
         <section class="panel left-panel">
             <div class="panel-header">
-                <h2 data-tooltip="기존 15 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">15 Patience Ensemble Old (5-Folds, 150 epochs)</h2>
+                <h2 id="model_a-title" data-tooltip="Model A result">Model A</h2>
             </div>
             
-            <div class="metrics-card" id="notune-metrics">
+            <div class="metrics-card" id="model_a-metrics">
                 <div class="metric-item highlight">
                     <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
-                    <span class="value" id="notune-recall">-</span>
+                    <span class="value" id="model_a-recall">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
-                    <span class="value" id="notune-map50">-</span>
+                    <span class="value" id="model_a-map50">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
-                    <span class="value" id="notune-map5095">-</span>
+                    <span class="value" id="model_a-map5095">-</span>
                 </div>
             </div>
 
             <div class="image-wrapper">
-                <img id="notune-img" src="" alt="15 Patience Old Image" />
+                <img id="model_a-img" src="" alt="Model A Image" />
             </div>
         </section>
 
-        <!-- Ensemble Panel (Right) -->
+        <!-- Model B Panel (Right) -->
         <section class="panel right-panel">
             <div class="panel-header">
-                <h2 data-tooltip="신규 100 Patience로 학습한 K-Fold 5개 모델의 WBF 앙상블 결과입니다.">100 Patience Ensemble New (5-Folds, 300 epochs)</h2>
+                <h2 id="model_b-title" data-tooltip="Model B result">Model B</h2>
             </div>
             
-            <div class="metrics-card" id="yestune-metrics">
+            <div class="metrics-card" id="model_b-metrics">
                 <div class="metric-item highlight">
                     <span class="label" data-tooltip="재현율(Recall): 실제 불량 중에서 모델이 정확히 불량이라고 찾아낸 비율.&#10;제조업에서는 불량을 놓치지 않는 것(미검 최소화)이 중요하므로 핵심 지표로 쓰입니다.">Recall</span>
-                    <span class="value" id="yestune-recall">-</span>
+                    <span class="value" id="model_b-recall">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mean Average Precision @ IoU 0.5:&#10;정답 박스와 모델의 예측 박스가 50% 이상 겹칠 때 정답으로 인정하는 보편적인 검출 성능 지표입니다.">mAP@0.5</span>
-                    <span class="value" id="yestune-map50">-</span>
+                    <span class="value" id="model_b-map50">-</span>
                 </div>
                 <div class="metric-item">
                     <span class="label" data-tooltip="mAP @ IoU 0.5:0.95:&#10;IoU 기준을 50%부터 95%까지 엄격하게 올리며 측정한 mAP의 평균.&#10;바운딩 박스가 얼마나 정교하고 타이트하게 위치하는지를 평가합니다.">mAP@0.5:0.95</span>
-                    <span class="value" id="yestune-map5095">-</span>
+                    <span class="value" id="model_b-map5095">-</span>
                 </div>
             </div>
 
             <div class="image-wrapper">
-                <img id="yestune-img" src="" alt="100 Patience New Image" />
+                <img id="model_b-img" src="" alt="Model B Image" />
             </div>
         </section>
     </main>
