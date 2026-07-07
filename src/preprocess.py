@@ -11,16 +11,22 @@ DeepPCB 포맷 메모:
     - 실제 이미지 파일명: {stem}_test.jpg  (목록의 {stem}.jpg 에 _test 추가)
     - 라벨 포맷: "x1 y1 x2 y2 type" (공백, 절대 픽셀, type 1~6)
     - 클래스 매핑: type - 1  →  0=open 1=short 2=mousebite 3=spur 4=copper 5=pinhole
+
+[수정 이력]
+    - 기존 split_dataset()은 이미지 단위 무작위 stratified split이었으나,
+      DeepPCB가 11개 그룹(같은 회로 설계를 촬영한 여러 샘플들)으로 구성되어 있어
+      그룹 간 배경/배선 패턴이 유사 → 그룹이 train/val/test에 걸쳐 분산되면
+      data leakage 발생. 그룹 단위 greedy 재분할로 수정함.
 """
 
 import sys
 import argparse
 import shutil
+import random
 from pathlib import Path
 
 import cv2
 import numpy as np
-from sklearn.model_selection import train_test_split
 
 sys.path.append(str(Path(__file__).parent))
 from utils import load_config, get_paths
@@ -28,18 +34,19 @@ from utils import load_config, get_paths
 CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
 
-def collect_pairs(raw_data: Path, limit: int | None = None) -> list[tuple[Path, Path]]:
-    """trainval.txt + test.txt 를 읽어 (image_path, label_path) 쌍 수집.
+def get_group_id(img_path: Path) -> str:
+    """이미지 경로에서 그룹 ID 추출.
 
-    실제 이미지 파일명은 목록의 {stem}.jpg 에 _test 접미사를 붙인 형태.
-    예) trainval.txt: group00041/00041/00041000.jpg
-        실제 파일:     group00041/00041/00041000_test.jpg
-
-    Args:
-        raw_data: PCBData/ 경로 (trainval.txt, test.txt 가 있는 위치)
-        limit:    처리할 최대 페어 수 (None = 전체, 빠른 검증용)
+    예) .../group00041/00041/00041000_test.jpg → "00041"
+    파일명 앞 5자리(그룹 폴더명과 동일)를 그룹 ID로 사용.
     """
-    pairs: list[tuple[Path, Path]] = []
+    stem = img_path.stem.replace("_test", "")
+    return stem[:5]
+
+
+def collect_pairs(raw_data: Path, limit: int | None = None) -> list[tuple[Path, Path, str]]:
+    """trainval.txt + test.txt 를 읽어 (image_path, label_path, group_id) 쌍 수집."""
+    pairs: list[tuple[Path, Path, str]] = []
     for list_file in ("trainval.txt", "test.txt"):
         txt_path = raw_data / list_file
         if not txt_path.exists():
@@ -55,7 +62,8 @@ def collect_pairs(raw_data: Path, limit: int | None = None) -> list[tuple[Path, 
                 img_path = raw_data / Path(img_rel).parent / f"{stem}_test.jpg"
                 lbl_path = raw_data / lbl_rel
                 if img_path.exists() and lbl_path.exists():
-                    pairs.append((img_path, lbl_path))
+                    group_id = get_group_id(img_path)
+                    pairs.append((img_path, lbl_path, group_id))
                 else:
                     print(f"[warn] 파일 없음 — img:{img_path.exists()} lbl:{lbl_path.exists()}")
         if limit and len(pairs) >= limit:
@@ -68,13 +76,7 @@ def collect_pairs(raw_data: Path, limit: int | None = None) -> list[tuple[Path, 
 
 
 def convert_label(lbl_path: Path, img_w: int, img_h: int) -> list[str]:
-    """DeepPCB 라벨 → YOLO 정규화 xywh 포맷 변환.
-
-    DeepPCB 포맷: "x1 y1 x2 y2 type" (공백구분, 절대 픽셀 좌표, type 1~6)
-    YOLO 포맷:    "cls cx cy w h"     (공백구분, 정규화 0~1)
-
-    type 1~6  →  cls 0~5  (단순 -1 매핑)
-    """
+    """DeepPCB 라벨 → YOLO 정규화 xywh 포맷 변환. (기존과 동일, 수정 없음)"""
     yolo_lines: list[str] = []
     with open(lbl_path, encoding="utf-8") as f:
         for line in f:
@@ -95,48 +97,80 @@ def convert_label(lbl_path: Path, img_w: int, img_h: int) -> list[str]:
 
 
 def split_dataset(
-    pairs: list[tuple[Path, Path]],
+    pairs: list[tuple[Path, Path, str]],
     train_ratio: float,
     val_ratio: float,
     random_state: int,
 ) -> tuple[list, list, list]:
-    """70/20/10 split (train/val/test).
+    """그룹 단위 greedy 재분할 (leakage 방지).
+
+    같은 그룹(같은 회로 설계의 여러 샘플)이 train/val/test에 걸쳐
+    분산되지 않도록, 그룹을 통째로 하나의 split에만 배정한다.
 
     Returns:
-        (train_pairs, val_pairs, test_pairs)
+        (train_pairs, val_pairs, test_pairs)  각 원소는 (img_path, lbl_path, group_id)
     """
+    random.seed(random_state)
+
+    # 1) 그룹별로 pair 묶기
+    group_to_pairs: dict[str, list] = {}
+    for p in pairs:
+        group_to_pairs.setdefault(p[2], []).append(p)
+
+    groups = list(group_to_pairs.keys())
+    group_sizes = {g: len(v) for g, v in group_to_pairs.items()}
+    total = sum(group_sizes.values())
+
     test_ratio = 1.0 - train_ratio - val_ratio
-    train_val, test = train_test_split(pairs, test_size=test_ratio, random_state=random_state)
-    relative_val = val_ratio / (train_ratio + val_ratio)
-    train, val = train_test_split(train_val, test_size=relative_val, random_state=random_state)
-    print(f"[split] train={len(train)}, val={len(val)}, test={len(test)}")
+    targets = {"train": train_ratio, "val": val_ratio, "test": test_ratio}
+    target_counts = {k: total * v for k, v in targets.items()}
+
+    # 2) 그룹을 크기 내림차순으로 정렬 → 목표치 대비 가장 부족한 split에 우선 배정
+    split_pairs = {"train": [], "val": [], "test": []}
+    split_counts = {"train": 0, "val": 0, "test": 0}
+
+    groups_sorted = sorted(groups, key=lambda g: -group_sizes[g])
+    for g in groups_sorted:
+        deficit = {k: target_counts[k] - split_counts[k] for k in targets}
+        best_split = max(deficit, key=deficit.get)
+        split_pairs[best_split].extend(group_to_pairs[g])
+        split_counts[best_split] += group_sizes[g]
+
+    train, val, test = split_pairs["train"], split_pairs["val"], split_pairs["test"]
+
+    # 3) 검증 — 그룹 겹침 없는지 확인
+    tg = set(p[2] for p in train)
+    vg = set(p[2] for p in val)
+    teg = set(p[2] for p in test)
+    assert not (tg & vg) and not (tg & teg) and not (vg & teg), "그룹 겹침 발생!"
+
+    print(f"[split] train={len(train)} ({len(train)/total*100:.1f}%), "
+          f"val={len(val)} ({len(val)/total*100:.1f}%), "
+          f"test={len(test)} ({len(test)/total*100:.1f}%)")
+    print(f"[split] ✅ 그룹 겹침 없음 확인 완료")
+
     return train, val, test
 
 
 def save_yolo_format(
     split_name: str,
-    pairs: list[tuple[Path, Path]],
+    pairs: list[tuple[Path, Path, str]],
     processed: Path,
     cfg: dict,
 ) -> None:
-    """이미지 + YOLO 라벨을 processed/{images,labels}/{split} 에 저장.
-
-    원본 이미지를 그대로 복사하고 라벨만 YOLO 포맷으로 변환한다.
-    서버 /shared raw_data 는 읽기만 하고, 결과는 processed 에만 씀.
-    """
+    """이미지 + YOLO 라벨을 processed/{images,labels}/{split} 에 저장."""
     img_out = processed / "images" / split_name
     lbl_out = processed / "labels" / split_name
     img_out.mkdir(parents=True, exist_ok=True)
     lbl_out.mkdir(parents=True, exist_ok=True)
 
-    for img_path, lbl_path in pairs:
+    for img_path, lbl_path, _group_id in pairs:
         if not img_path.exists():
             print(f"[warn] 이미지 없음: {img_path}")
             continue
 
         shutil.copy2(img_path, img_out / img_path.name)
 
-        # 이미지 크기를 파일명에서 읽지 않고 실제로 확인
         img = cv2.imread(str(img_path))
         if img is None:
             print(f"[warn] 이미지 로드 실패: {img_path}")
@@ -145,16 +179,13 @@ def save_yolo_format(
         h, w = img.shape[:2]
 
         yolo_lines = convert_label(lbl_path, w, h)
-        # YOLO는 이미지와 동일한 stem 으로 라벨을 탐색하므로 img_path.stem 사용
         (lbl_out / f"{img_path.stem}.txt").write_text("\n".join(yolo_lines))
 
     print(f"[save] {split_name}: {len(pairs)} 샘플 → {img_out}")
 
 
 def prepare_dataset(project_root: Path, expected_raw_dir: Path) -> Path | None:
-    """dataset.zip 파일이 있으면 압축을 풀고 해당 경로를 반환합니다.
-    이미 풀려있으면 압축 해제를 건너뜁니다.
-    """
+    """dataset.zip 파일이 있으면 압축을 풀고 해당 경로를 반환합니다. (기존과 동일)"""
     zip_path = project_root / "dataset.zip"
 
     if expected_raw_dir.exists():
@@ -167,9 +198,8 @@ def prepare_dataset(project_root: Path, expected_raw_dir: Path) -> Path | None:
     print(f"[prepare_dataset] {zip_path} 압축 해제 중...")
     import zipfile
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-        # zip 파일 내부에 이미 dataset 폴더가 최상위에 있으므로 project_root에 해제
         zip_ref.extractall(project_root)
-        
+
     if expected_raw_dir.exists():
         print(f"[prepare_dataset] 압축 해제 완료: {expected_raw_dir}")
         return expected_raw_dir
@@ -183,8 +213,7 @@ def main(config_path: str = "config.yaml", limit: int | None = None) -> None:
     paths = get_paths(cfg)
 
     raw_data_path = paths["raw_data"]
-    
-    # 압축 해제 로직 추가 (기존 경로 덮어쓰기)
+
     project_root = paths.get("project_root", Path("."))
     extracted_path = prepare_dataset(project_root, raw_data_path)
     if extracted_path and extracted_path.exists():
