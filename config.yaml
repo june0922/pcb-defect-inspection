@@ -68,7 +68,7 @@ tune:
   imgsz: 1280
   batch: -1
   epochs: 50
-  iterations: 300
+  iterations: 100
   model: weights/yolov8n.pt
   patience: 15
   device: 0
