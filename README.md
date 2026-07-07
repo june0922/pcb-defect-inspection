@@ -6,6 +6,7 @@
 ## app_back
 <img width="1912" height="982" alt="image" src="https://github.com/user-attachments/assets/6df9c74b-e07f-4d35-afdc-db5250259747" />
 
+## 소개
 YOLOv8 5-Fold 앙상블 모델을 통해 PCB(인쇄회로기판) 표면 결함을 고정밀로 탐지하고, 최종적으로 작업자가 데스크톱 GUI(Review Station)를 통해 빠르고 직관적으로 결함을 검토하고 판정할 수 있도록 돕는 통합 시스템입니다.
 
 > **핵심 차별점** — 단순 bounding box 검출에 그치지 않고, 5개의 모델이 도출한 앙상블 결과를 바탕으로 높은 재현율(Recall)을 달성하여 불량 놓침을 최소화합니다. 또한, 작업자 피로도를 줄이기 위한 단축키 중심의 GUI 리뷰 스테이션을 최종 결과물로 제공합니다.
