@@ -81,4 +81,9 @@ echo.
 echo ========================================================
 echo Training Execution Finished.
 echo ========================================================
-pause
+echo The terminal will automatically close in 10 seconds.
+echo Press Ctrl+C to cancel and keep the window open.
+timeout /t 10
+if errorlevel 0 (
+    exit
+)

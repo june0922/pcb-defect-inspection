@@ -111,4 +111,9 @@ echo Hyperparameter Tuning Finished.
 echo Results saved to: runs\tune\
 echo Best hyperparameters: runs\tune\best_hyperparameters.yaml
 echo ========================================================
-pause
+echo The terminal will automatically close in 10 seconds.
+echo Press Ctrl+C to cancel and keep the window open.
+timeout /t 10
+if errorlevel 0 (
+    exit
+)

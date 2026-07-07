@@ -76,3 +76,13 @@ echo ""
 echo "========================================================"
 echo "Training Execution Finished."
 echo "========================================================"
+
+if [ -n "$TMUX" ]; then
+    echo "Running in tmux. The session will automatically close in 10 seconds."
+    echo "Press Ctrl+C to cancel and keep the session open."
+    sleep 10
+    tmux kill-session
+else
+    echo "The script will exit in 10 seconds. Press Ctrl+C to cancel."
+    sleep 10
+fi
