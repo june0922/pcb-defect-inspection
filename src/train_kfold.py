@@ -26,7 +26,7 @@ PROJECT_ROOT = Path(__file__).parent.parent
 import torch
 import yaml
 import numpy as np
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import StratifiedGroupKFold
 
 sys.path.append(str(Path(__file__).parent))
 from utils import load_config, get_paths
@@ -170,8 +170,11 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     # 층화를 위한 타겟 라벨 추출
     y = get_representative_classes(labels)
     
-    # Stratified K-Fold 분할
-    skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=random_state)
+    # 그룹 추출 (preprocess.py 와 동일하게 stem 앞 5자리 사용)
+    groups = [Path(img).stem.replace("_test", "")[:5] for img in images]
+    
+    # Stratified Group K-Fold 분할
+    skf = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=random_state)
     
     images_arr = np.array(images)
     
@@ -192,7 +195,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         starting_run=completed_folds
     )
     
-    for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y)):
+    for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y, groups)):
         fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
 
         # --- Resume 모드: fold 상태 판별 ---
