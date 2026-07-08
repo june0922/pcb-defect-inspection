@@ -74,8 +74,7 @@ def main(config_path: str = "config.yaml") -> None:
     model = YOLO(str(model_path))
 
     # 이어하기(resume) 여부 자동 감지
-    # Ultralytics Tuner 내부에서 exist_ok 값은 resume 값으로 덮여쓰임.
-    # tune_results.ndjson 존재 여부로 이어하기 여부를 결정해 resume=True 를 명시적으로 전달해야 함.
+    # Ultralytics GA 튜너는 tune_results.ndjson 을 생성하며, _mutate() 가 파일 존재를 자체 감지해 GA 를 이어서 진행.
     tune_results_file = paths["runs"] / "tune" / "tune_results.ndjson"
     should_resume = tune_results_file.exists()
 
@@ -83,7 +82,7 @@ def main(config_path: str = "config.yaml") -> None:
     completed = 0
     if should_resume:
         completed = sum(1 for line in tune_results_file.open(encoding="utf-8") if line.strip())
-        print(f"\n[tune] 이전 튜닝 결과 발견 — iteration {completed}/{total}에서 이어서 시작합니다.")
+        print(f"\n[tune] 이전 튜닝 결과 발견 — {completed}/{total} iteration 완료. 이어서 진행합니다.")
     else:
         print(f"\n[tune] 하이퍼파라미터 튜닝을 시작합니다. (반복: {total}회, 에포크/회: {tc.get('epochs', 150)})")
     print("[tune] 튜닝은 일반 학습보다 매우 오랜 시간이 소요됩니다.\n")
@@ -104,8 +103,10 @@ def main(config_path: str = "config.yaml") -> None:
     tune_args = {k: v for k, v in tc.items() if k not in ["model"]}
 
     # 튜닝 실행
-    # resume=True → Tuner 내부에서 exist_ok=True 로 전환되어 같은 runs/tune/ 디렉토리를 재사용하고
-    #               tune_results.ndjson 의 완료 행 수를 세어 다음 iteration 부터 자동으로 재개함.
+    # resume=should_resume → Tuner 내부에서 exist_ok=True 로 처리되어 동일 runs/tune/ 디렉토리를 재사용하고
+    #                         tune_results.ndjson 의 완료 행 수를 세어 다음 iteration 부터 자동으로 재개함.
+    # Ultralytics 8.4.x 에서는 Tuner 가 resume 을 내부적으로 exist_ok 로 변환한 뒤 args.resume=False 를 유지하므로
+    # 개별 model.train() 호출에는 resume 이 전파되지 않음.
     results = model.tune(
         data=str(data_yaml),
         project=str(paths["runs"]),

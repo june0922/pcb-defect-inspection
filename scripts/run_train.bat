@@ -48,7 +48,7 @@ set /p run_train="Proceed with training using these parameters? (Y/N, default is
 if /I not "%run_train%"=="Y" (
     echo Training cancelled by user.
     pause
-    exit /b
+    exit /b 0
 )
 
 echo.
