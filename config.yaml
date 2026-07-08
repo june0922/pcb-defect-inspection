@@ -78,13 +78,3 @@ kfold:
   random_state: 42
 evaluate:
   weights: weights/best.pt
-
-database:
-  url: postgresql://pcb:pcb1234@localhost:5433/pcb_inspection
-  # 다른 PC에서 접속 시: postgresql://pcb:pcb1234@<서버IP>:5432/pcb_inspection
-  # 환경변수 DATABASE_URL 설정 시 이 값보다 우선 적용됨
-
-db_server:
-  host: 0.0.0.0   # 서버 PC에서 실행 시 0.0.0.0
-  port: 8001
-  client_url: http://localhost:8001  # 각 앱에서 접속할 URL (다른 PC면 서버 IP로 변경)

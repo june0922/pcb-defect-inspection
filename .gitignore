@@ -42,6 +42,8 @@ desktop.ini
 app_front/settings.json
 app_front/inspection_log_*.json
 
-# DB — SQLite 로컬 파일 (운영은 PostgreSQL 사용)
+# DB — SQLite 로컬 파일
 db/inspection.db
+db/inspection.db-shm
+db/inspection.db-wal
 db/fallback.db

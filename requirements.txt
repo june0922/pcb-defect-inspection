@@ -25,7 +25,3 @@ torchmetrics
 
 # 리뷰 스테이션 (app_back/)
 PyQt5>=5.15.0
-
-# 공유 DB (db/)
-sqlalchemy>=2.0
-psycopg2-binary>=2.9
