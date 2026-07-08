@@ -2,10 +2,7 @@
 
 import sys
 import time
-import json
-import uuid
 from pathlib import Path
-from datetime import datetime, timezone
 
 import cv2
 import numpy as np
@@ -15,7 +12,8 @@ from PyQt5.QtWidgets import (
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
     QApplication, QAction, QShortcut, QDialog, QFormLayout,
     QDialogButtonBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox,
-    QGridLayout, QFrame, QSizePolicy,
+    QGridLayout, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem,
+    QHeaderView,
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer
 from PyQt5.QtGui import (
@@ -36,7 +34,14 @@ if str(_PROJECT_ROOT / "src") not in sys.path:
 import sys as _sys
 _sys.path.insert(0, str(_PROJECT_ROOT))
 try:
-    from db.database import init_db as _db_init, insert_tile as _db_insert, clear_all as _db_clear
+    from db.database import (
+        init_db as _db_init,
+        upsert_tile as _db_upsert,
+        clear_all as _db_clear,
+        get_settings as _db_get_settings,
+        update_settings as _db_update_settings,
+        get_db_stats as _db_get_stats,
+    )
     _DB_ENABLED = True
 except Exception as _e:
     print(f"[DB] 연동 비활성화: {_e}")
@@ -59,40 +64,85 @@ DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 # ── SettingsDialog ────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
-    """검사 파라미터 설정 다이얼로그."""
+    """검사 파라미터 설정 다이얼로그 (클래스별 REVIEW 밴드)."""
 
-    def __init__(self, current_settings, parent=None):
+    _STYLE = """
+        QDialog { background-color: #1e1e1e; color: #ccc; }
+        QLabel { color: #ccc; }
+        QTableWidget { background-color: #1a1a1a; color: #ccc;
+                        gridline-color: #333; border: 1px solid #333; }
+        QTableWidget::item { padding: 2px; }
+        QHeaderView::section { background-color: #2a2a2a; color: #ccc;
+                                 border: 1px solid #333; padding: 4px; }
+        QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
+        QCheckBox { color: #ccc; }
+        QPushButton { background-color: #333; color: #ccc; padding: 5px; }
+        QPushButton:hover { background-color: #444; }
+    """
+
+    def __init__(self, current_settings: dict, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Inspection Settings")
-        self.setMinimumWidth(340)
+        self.setMinimumWidth(480)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
         layout = QVBoxLayout(self)
+
+        # ── per-class REVIEW 밴드 테이블 ──────────────────────────
+        band_label = QLabel("클래스별 REVIEW 신뢰도 밴드 (하한 ≤ REVIEW < 상한, 상한 초과 → FAIL)")
+        band_label.setStyleSheet("color: #aaa; font-size: 8pt;")
+        layout.addWidget(band_label)
+
+        self._table = QTableWidget(len(DEFECT_CLASSES), 3)
+        self._table.setHorizontalHeaderLabels(["결함 클래스", "REVIEW MIN (%)", "REVIEW MAX (%)"])
+        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        self._table.verticalHeader().setVisible(False)
+        self._table.setSelectionMode(QTableWidget.NoSelection)
+        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self._table.setFixedHeight(len(DEFECT_CLASSES) * 30 + 30)
+
+        self._min_spins: list[QSpinBox] = []
+        self._max_spins: list[QSpinBox] = []
+
+        for i, cls in enumerate(DEFECT_CLASSES):
+            name_item = QTableWidgetItem(cls)
+            name_item.setTextAlignment(Qt.AlignCenter)
+            self._table.setItem(i, 0, name_item)
+
+            min_spin = QSpinBox()
+            min_spin.setRange(1, 99)
+            min_spin.setSuffix(" %")
+            min_spin.setValue(int(current_settings.get(f"review_min_{cls}", 30)))
+            min_spin.setToolTip(f"{cls}: 이 값 미만 → PASS")
+            self._table.setCellWidget(i, 1, min_spin)
+            self._min_spins.append(min_spin)
+
+            max_spin = QSpinBox()
+            max_spin.setRange(2, 100)
+            max_spin.setSuffix(" %")
+            max_spin.setValue(int(current_settings.get(f"review_max_{cls}", 70)))
+            max_spin.setToolTip(f"{cls}: 이 값 초과 → FAIL")
+            self._table.setCellWidget(i, 2, max_spin)
+            self._max_spins.append(max_spin)
+
+        layout.addWidget(self._table)
+
+        # ── IoU + 경고음 ──────────────────────────────────────────
         form_layout = QFormLayout()
-
-        self.pass_spin = QSpinBox()
-        self.pass_spin.setRange(1, 99)
-        self.pass_spin.setSuffix(" %")
-        self.pass_spin.setValue(current_settings.get("pass_threshold", 30))
-        self.pass_spin.setToolTip("이 값 미만의 confidence → PASS (양품)")
-
-        self.fail_spin = QSpinBox()
-        self.fail_spin.setRange(2, 100)
-        self.fail_spin.setSuffix(" %")
-        self.fail_spin.setValue(current_settings.get("fail_threshold", 70))
-        self.fail_spin.setToolTip("이 값 이상의 confidence → FAIL (불량)")
 
         self.iou_spin = QDoubleSpinBox()
         self.iou_spin.setRange(0.10, 0.95)
         self.iou_spin.setSingleStep(0.05)
-        self.iou_spin.setValue(current_settings.get("iou_threshold", 0.45))
+        self.iou_spin.setValue(float(current_settings.get("iou_threshold", 0.45)))
+        form_layout.addRow("IoU Threshold:", self.iou_spin)
 
         self.alert_check = QCheckBox("FAIL 검출 시 경고음")
-        self.alert_check.setChecked(current_settings.get("alert_sound", True))
-
-        form_layout.addRow("PASS Threshold:", self.pass_spin)
-        form_layout.addRow("FAIL Threshold:", self.fail_spin)
-        form_layout.addRow("IoU Threshold:", self.iou_spin)
+        alert_val = current_settings.get("alert_sound", True)
+        if isinstance(alert_val, str):
+            alert_val = alert_val.lower() == "true"
+        self.alert_check.setChecked(bool(alert_val))
         form_layout.addRow("", self.alert_check)
 
         layout.addLayout(form_layout)
@@ -104,32 +154,29 @@ class SettingsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        self.setStyleSheet("""
-            QDialog { background-color: #1e1e1e; color: #ccc; }
-            QLabel { color: #ccc; }
-            QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
-            QCheckBox { color: #ccc; }
-            QPushButton { background-color: #333; color: #ccc; padding: 5px; }
-            QPushButton:hover { background-color: #444; }
-        """)
+        self.setStyleSheet(self._STYLE)
 
     def _validate_and_accept(self):
-        """PASS threshold < FAIL threshold 유효성 검증."""
-        if self.pass_spin.value() >= self.fail_spin.value():
-            QMessageBox.warning(
-                self, "Invalid Settings",
-                "PASS Threshold must be less than FAIL Threshold.",
-            )
-            return
+        """각 클래스에 대해 review_min < review_max 유효성 검증."""
+        for i, cls in enumerate(DEFECT_CLASSES):
+            mn = self._min_spins[i].value()
+            mx = self._max_spins[i].value()
+            if mn >= mx:
+                QMessageBox.warning(
+                    self, "설정 오류",
+                    f"[{cls}] REVIEW MIN({mn}%) 은 MAX({mx}%) 보다 작아야 합니다.",
+                )
+                return
         self.accept()
 
-    def get_settings(self):
-        return {
-            "pass_threshold": int(self.pass_spin.value()),
-            "fail_threshold": int(self.fail_spin.value()),
-            "iou_threshold": round(float(self.iou_spin.value()), 2),
-            "alert_sound": self.alert_check.isChecked(),
-        }
+    def get_settings(self) -> dict:
+        s: dict = {}
+        for i, cls in enumerate(DEFECT_CLASSES):
+            s[f"review_min_{cls}"] = int(self._min_spins[i].value())
+            s[f"review_max_{cls}"] = int(self._max_spins[i].value())
+        s["iou_threshold"] = round(float(self.iou_spin.value()), 2)
+        s["alert_sound"] = self.alert_check.isChecked()
+        return s
 
 
 # ── MainWindow ────────────────────────────────────────────────
@@ -160,8 +207,6 @@ class MainWindow(QMainWindow):
         self._colored_images: dict[int, np.ndarray] = {}
         self._inspection_start_time: float = 0.0
         self._tile_count: int = 0
-        self._log_path: Path | None = None
-        self._log_flush_counter: int = 0
 
         # 통계 카운터
         self._stats = {
@@ -174,11 +219,7 @@ class MainWindow(QMainWindow):
         self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
         self._inference_times: list[float] = []
 
-        # JSON 로그 데이터
-        self._log_data: dict = {}
-
-        # 설정
-        self._settings_file = Path(__file__).parent / "settings.json"
+        # 설정 (DB에서 로드)
         self._app_settings = self._load_settings()
 
         self._init_ui()
@@ -187,36 +228,42 @@ class MainWindow(QMainWindow):
 
         self._status_label.setText("Ready. File > Open Folder... to start.")
 
-    # ── 설정 로드/저장 ─────────────────────────────────────────
+    # ── 설정 로드/저장 (DB 기반) ──────────────────────────────
 
-    def _load_settings(self):
-        defaults = {
-            "pass_threshold": 30,
-            "fail_threshold": 70,
-            "iou_threshold": 0.45,
-            "alert_sound": True,
-        }
-        if self._settings_file.exists():
-            try:
-                with open(self._settings_file, "r", encoding="utf-8") as f:
-                    saved = json.load(f)
-                    merged = {**defaults, **saved}
-                    return {
-                        "pass_threshold": int(merged["pass_threshold"]),
-                        "fail_threshold": int(merged["fail_threshold"]),
-                        "iou_threshold": round(float(merged["iou_threshold"]), 2),
-                        "alert_sound": bool(merged.get("alert_sound", True)),
-                    }
-            except Exception:
-                pass
-        return defaults
+    def _load_settings(self) -> dict:
+        """DB settings 테이블에서 설정을 읽어 반환. DB가 없으면 기본값 사용."""
+        defaults: dict = {}
+        for cls in DEFECT_CLASSES:
+            defaults[f"review_min_{cls}"] = 30
+            defaults[f"review_max_{cls}"] = 70
+        defaults["iou_threshold"] = 0.45
+        defaults["alert_sound"] = True
 
-    def _save_settings(self, settings):
+        if not _DB_ENABLED:
+            return defaults
         try:
-            with open(self._settings_file, "w", encoding="utf-8") as f:
-                json.dump(settings, f, indent=4)
+            _db_init()
+            raw = _db_get_settings()
+            result: dict = {}
+            for cls in DEFECT_CLASSES:
+                result[f"review_min_{cls}"] = int(raw.get(f"review_min_{cls}", 30))
+                result[f"review_max_{cls}"] = int(raw.get(f"review_max_{cls}", 70))
+            result["iou_threshold"] = round(float(raw.get("iou_threshold", 0.45)), 2)
+            alert_val = raw.get("alert_sound", "true")
+            result["alert_sound"] = alert_val if isinstance(alert_val, bool) else alert_val.lower() == "true"
+            return result
         except Exception as e:
-            QMessageBox.warning(self, "Warning", f"Failed to save settings: {e}")
+            print(f"[DB] 설정 로드 실패, 기본값 사용: {e}")
+            return defaults
+
+    def _save_settings(self, settings: dict) -> None:
+        """설정을 DB settings 테이블에 저장."""
+        if not _DB_ENABLED:
+            return
+        try:
+            _db_update_settings(settings)
+        except Exception as e:
+            QMessageBox.warning(self, "Warning", f"설정 저장 실패: {e}")
 
     # ── UI 초기화 ──────────────────────────────────────────────
 
@@ -402,13 +449,24 @@ class MainWindow(QMainWindow):
             "QMenu { background: #2a2a2a; color: #ccc; }"
             "QMenu::item:selected { background: #3a7bd5; }"
         )
-        file_menu = menu_bar.addMenu("File")
 
+        # File 메뉴
+        file_menu = menu_bar.addMenu("File")
         open_action = QAction("Open Folder...", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._select_folder_and_start)
         file_menu.addAction(open_action)
 
+        # Database 메뉴 (File과 Option 사이)
+        db_menu = menu_bar.addMenu("Database")
+        stats_action = QAction("DB 통계...", self)
+        stats_action.triggered.connect(self._show_db_stats)
+        db_menu.addAction(stats_action)
+        reset_action = QAction("DB 초기화...", self)
+        reset_action.triggered.connect(self._reset_db)
+        db_menu.addAction(reset_action)
+
+        # Option 메뉴
         option_menu = menu_bar.addMenu("Option")
         settings_action = QAction("Settings...", self)
         settings_action.triggered.connect(self._open_settings_dialog)
@@ -416,38 +474,56 @@ class MainWindow(QMainWindow):
 
     def _open_settings_dialog(self):
         dialog = SettingsDialog(self._app_settings, self)
-        result = dialog.exec_()
-        if result == QDialog.Accepted:
+        if dialog.exec_() == QDialog.Accepted:
             new_settings = dialog.get_settings()
-
-            # 임계값/IoU 변경 여부 확인
-            threshold_changed = (
-                new_settings["pass_threshold"] != self._app_settings["pass_threshold"]
-                or new_settings["fail_threshold"] != self._app_settings["fail_threshold"]
-                or new_settings["iou_threshold"] != self._app_settings["iou_threshold"]
-            )
-
-            # 임계값 변경 + 검사 진행 중 → 재시작 확인
-            if threshold_changed and self._worker and self._worker.isRunning():
-                reply = QMessageBox.warning(
-                    self, "Settings Changed",
-                    "검사 파라미터가 변경되었습니다.\n"
-                    "현재 검사가 중단되고 처음부터 다시 시작됩니다.\n\n"
-                    "계속하시겠습니까?",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.No,
-                )
-                if reply != QMessageBox.Yes:
-                    return
-
-            # 설정 저장 (경고음 변경은 즉시 적용, 저장도 항상 수행)
             self._app_settings = new_settings
             self._save_settings(self._app_settings)
+            # 진행 중인 Worker는 중단하지 않음. 다음 폴더 오픈 시 새 설정 적용.
 
-            # 임계값 변경 시 검사 재시작
-            if threshold_changed and self._current_folder is not None:
-                QApplication.processEvents()
-                self._start_inspection(self._current_folder)
+    def _show_db_stats(self):
+        """DB 통계 다이얼로그 표시."""
+        if not _DB_ENABLED:
+            QMessageBox.warning(self, "DB 비활성화", "DB 연동이 비활성화되어 있습니다.")
+            return
+        try:
+            stats = _db_get_stats()
+            total = stats.get("_total", 0)
+            db_bytes = stats.get("_db_bytes", 0)
+            if db_bytes >= 1024 ** 2:
+                size_str = f"{db_bytes / 1024 ** 2:.1f} MB"
+            elif db_bytes >= 1024:
+                size_str = f"{db_bytes / 1024:.1f} KB"
+            else:
+                size_str = f"{db_bytes} B"
+            msg = (
+                f"총 타일 수: {total}\n"
+                f"  PASS : {stats.get('PASS', 0)}\n"
+                f"  FAIL : {stats.get('FAIL', 0)}\n"
+                f"  REVIEW: {stats.get('REVIEW', 0)}\n\n"
+                f"DB 파일 크기: {size_str}"
+            )
+            QMessageBox.information(self, "DB 통계", msg)
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"DB 통계 조회 실패: {e}")
+
+    def _reset_db(self):
+        """DB 초기화 (tiles 삭제). 진행 중인 Worker는 중단하지 않음."""
+        reply = QMessageBox.question(
+            self, "DB 초기화",
+            "모든 검사 데이터를 삭제하시겠습니까?\n"
+            "진행 중인 검사는 중단되지 않습니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+        if not _DB_ENABLED:
+            return
+        try:
+            _db_clear()
+            self._status_label.setText("DB가 초기화되었습니다.")
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"DB 초기화 실패: {e}")
 
     def _connect_signals(self):
         # Space 키: 일시정지/재개 (마우스 포커스 무관)
@@ -495,7 +571,6 @@ class MainWindow(QMainWindow):
         self._last_grid_image_index = -1
         self._colored_images.clear()
         self._tile_count = 0
-        self._log_flush_counter = 0
         self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
         self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
         self._inference_times.clear()
@@ -520,10 +595,15 @@ class MainWindow(QMainWindow):
             wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
             weight_paths.append(str(wp))
 
-        # 설정값
-        pass_thresh = self._app_settings["pass_threshold"] / 100.0
-        fail_thresh = self._app_settings["fail_threshold"] / 100.0
-        iou_thresh = self._app_settings["iou_threshold"]
+        # 설정값: per-class REVIEW 밴드 (0.0~1.0 비율로 변환)
+        per_class_bands = {
+            i: (
+                self._app_settings.get(f"review_min_{cls}", 30) / 100.0,
+                self._app_settings.get(f"review_max_{cls}", 70) / 100.0,
+            )
+            for i, cls in enumerate(DEFECT_CLASSES)
+        }
+        iou_thresh = float(self._app_settings.get("iou_threshold", 0.45))
 
         # GPU/CPU 자동 판별
         try:
@@ -534,8 +614,7 @@ class MainWindow(QMainWindow):
 
         self._worker = InspectionWorker(
             weight_paths=weight_paths,
-            pass_threshold=pass_thresh,
-            fail_threshold=fail_thresh,
+            per_class_bands=per_class_bands,
             iou_thresh=iou_thresh,
             device=device,
         )
@@ -561,9 +640,6 @@ class MainWindow(QMainWindow):
                     _db_clear()
             except Exception as e:
                 print(f"[DB] 초기화 실패: {e}")
-
-        # JSON 로그 초기화
-        self._init_log(folder, image_paths)
 
         self._status_label.setText("Loading 5 K-Fold models...")
         self._progress_bar.setVisible(True)
@@ -652,22 +728,18 @@ class MainWindow(QMainWindow):
         self._update_statistics_display()
 
         # FAIL 경고음
-        if verdict == "FAIL" and self._app_settings.get("alert_sound", True):
+        alert_val = self._app_settings.get("alert_sound", True)
+        if isinstance(alert_val, str):
+            alert_val = alert_val.lower() == "true"
+        if verdict == "FAIL" and alert_val:
             self._play_alert_sound()
 
-        # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과
+        # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과 (같은 위치는 최신으로 교체)
         if _DB_ENABLED:
             try:
-                _db_insert(tile_bgr, verdict)
+                _db_upsert(tile_bgr, verdict, result["image_path"], row, col)
             except Exception as e:
                 print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
-
-        # JSON 로그 기록
-        self._log_tile_result(result)
-        self._log_flush_counter += 1
-        if self._log_flush_counter >= 10:
-            self._flush_log()
-            self._log_flush_counter = 0
 
     @pyqtSlot(int, int)
     def _on_progress(self, current, total):
@@ -681,7 +753,6 @@ class MainWindow(QMainWindow):
         self._progress_bar.setVisible(False)
         self._elapsed_timer.stop()
         self._global_view.clear_camera()
-        self._flush_log()
         self._update_statistics_display()
 
         self._status_label.setText(
@@ -840,123 +911,11 @@ class MainWindow(QMainWindow):
             return colored_path
         return None
 
-    # ── JSON 로그 ──────────────────────────────────────────────
-
-    def _init_log(self, folder, image_paths):
-        """검사 세션 JSON 로그 초기화."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._log_path = Path(__file__).parent / f"inspection_log_{timestamp}.json"
-
-        self._log_data = {
-            "inspection_session": {
-                "session_id": str(uuid.uuid4()),
-                "start_time": datetime.now(timezone.utc).isoformat(),
-                "end_time": None,
-                "source_folder": str(folder),
-                "total_images": len(image_paths),
-                "settings": {
-                    "pass_threshold": self._app_settings["pass_threshold"],
-                    "fail_threshold": self._app_settings["fail_threshold"],
-                    "iou_threshold": self._app_settings["iou_threshold"],
-                },
-                "model_info": {
-                    "architecture": "YOLOv8n",
-                    "ensemble": "5-Fold WBF",
-                    "weight_files": [f"best_fold_{i}.pt" for i in range(1, 6)],
-                },
-            },
-            "summary": {
-                "total_tiles": 0,
-                "inspected_tiles": 0,
-                "pass_count": 0,
-                "fail_count": 0,
-                "review_count": 0,
-                "pass_rate": 0.0,
-                "first_pass_yield": 0.0,
-                "defect_distribution": {cls: 0 for cls in DEFECT_CLASSES},
-                "elapsed_seconds": 0,
-                "throughput_tiles_per_min": 0.0,
-                "avg_inference_ms": 0.0,
-            },
-            "tile_results": [],
-        }
-
-    def _log_tile_result(self, result):
-        """타일 검사 결과를 로그 데이터에 추가."""
-        if not self._log_data:
-            return
-
-        # 로그용 detection 정보 (numpy 제거)
-        log_detections = []
-        for det in result["detections"]:
-            log_detections.append({
-                "class_id": det["class_id"],
-                "class_name": det["class_name"],
-                "confidence": round(det["confidence"], 4),
-                "bbox_abs": [round(v, 1) for v in det["bbox_abs"]],
-            })
-
-        tile_entry = {
-            "tile_id": result["scan_order"],
-            "image_file": result["image_file"],
-            "image_index": result["image_index"],
-            "grid_row": result["grid_row"],
-            "grid_col": result["grid_col"],
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "verdict": result["verdict"],
-            "detections": log_detections,
-            "max_confidence": round(result["max_confidence"], 4),
-            "inference_time_ms": round(result["inference_time_ms"], 1),
-        }
-        self._log_data["tile_results"].append(tile_entry)
-
-        # Summary 갱신
-        summary = self._log_data["summary"]
-        summary["total_tiles"] = self._stats["total_tiles"]
-        summary["inspected_tiles"] = self._stats["inspected"]
-        summary["pass_count"] = self._stats["pass"]
-        summary["fail_count"] = self._stats["fail"]
-        summary["review_count"] = self._stats["review"]
-        if self._stats["inspected"] > 0:
-            summary["pass_rate"] = round(
-                self._stats["pass"] / self._stats["inspected"] * 100, 2
-            )
-            summary["first_pass_yield"] = summary["pass_rate"]
-        summary["defect_distribution"] = dict(self._defect_distribution)
-        if self._inspection_start_time > 0:
-            elapsed = time.time() - self._inspection_start_time
-            summary["elapsed_seconds"] = round(elapsed, 1)
-            if elapsed > 0:
-                summary["throughput_tiles_per_min"] = round(
-                    self._stats["inspected"] / elapsed * 60, 2
-                )
-        if self._inference_times:
-            summary["avg_inference_ms"] = round(
-                sum(self._inference_times) / len(self._inference_times), 1
-            )
-
-    def _flush_log(self):
-        """로그 데이터를 JSON 파일에 기록."""
-        if not self._log_path or not self._log_data:
-            return
-
-        # 종료 시간 갱신
-        self._log_data["inspection_session"]["end_time"] = (
-            datetime.now(timezone.utc).isoformat()
-        )
-
-        try:
-            with open(self._log_path, "w", encoding="utf-8") as f:
-                json.dump(self._log_data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
     # ── 종료 처리 ──────────────────────────────────────────────
 
     def closeEvent(self, event):
         """앱 종료 시 Worker 스레드 안전 정리."""
         self._elapsed_timer.stop()
-        self._flush_log()
         if self._worker and self._worker.isRunning():
             self._worker.stop()
             self._worker.wait(3000)
