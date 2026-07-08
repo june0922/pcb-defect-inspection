@@ -12,7 +12,7 @@ from PyQt5.QtGui import (
 
 def confidence_color(
     conf: float,
-    cls_id: int = -1,
+    class_name: str | None = None,
     per_class_bands: dict | None = None,
 ) -> QColor:
     """클래스별 REVIEW 밴드 기반 색상 반환.
@@ -24,8 +24,8 @@ def confidence_color(
 
     per_class_bands가 없으면 레거시 고정 임계값(0.70/0.90) 사용.
     """
-    if per_class_bands and cls_id in per_class_bands:
-        r_min, r_max = per_class_bands[cls_id]
+    if per_class_bands and class_name in per_class_bands:
+        r_min, r_max = per_class_bands[class_name]
         if conf > r_max:
             return QColor(255, 68, 68)
         elif conf >= r_min:
@@ -166,7 +166,7 @@ class VisionViewer(QGraphicsView):
         Args:
             detections: bbox_abs, class_name, confidence, class_id 포함 dict 리스트.
             highlight_index: 강조 표시할 결함 인덱스 (더 두꺼운 선).
-            per_class_bands: {class_id: (review_min, review_max)} — 색상 결정용.
+            per_class_bands: {class_name: (review_min, review_max)} — 색상 결정용.
         """
         self._clear_overlay()
         self._highlighted_overlay_items = []
@@ -176,8 +176,7 @@ class VisionViewer(QGraphicsView):
             x1, y1, x2, y2 = det["bbox_abs"]
             conf = det["confidence"]
             cls_name = det["class_name"]
-            cls_id = det.get("class_id", -1)
-            color = confidence_color(conf, cls_id=cls_id, per_class_bands=per_class_bands)
+            color = confidence_color(conf, class_name=cls_name, per_class_bands=per_class_bands)
 
             is_highlighted = (i == highlight_index)
             thickness = 3.0 if is_highlighted else 2.0
