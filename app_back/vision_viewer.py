@@ -94,6 +94,7 @@ class VisionViewer(QGraphicsView):
     # 마우스 씬 좌표를 MainWindow에 전달 (GlobalView 커서 동기화용)
     cursor_moved = pyqtSignal(float, float)   # scene_x, scene_y
     cursor_left = pyqtSignal()                # 마우스가 뷰어를 떠남
+    restore_requested = pyqtSignal()          # 휠클릭: 브러쉬 수정 내용 복원 요청
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -238,8 +239,14 @@ class VisionViewer(QGraphicsView):
         """외부에서 브러쉬 크기를 설정 (MainWindow 단축키용)."""
         self._brush_size = max(1, min(100, size))
 
+    def get_brush_size(self) -> int:
+        """현재 브러쉬 크기 반환 (MainWindow 단축키용)."""
+        return self._brush_size
+
     def _apply_zoom(self, factor: float):
         """줌 배율 적용 시 설정된 최소/최대 한계를 벗어나지 않도록 제한합니다."""
+        self._remove_cursor_item()  # 줌 시 브러쉬 커서 잔상 방지
+
         current_zoom = self.transform().m11()
         new_zoom = current_zoom * factor
 
@@ -253,6 +260,8 @@ class VisionViewer(QGraphicsView):
 
     def pan(self, dx: int, dy: int):
         """키보드 단축키용 패닝."""
+        self._remove_cursor_item()  # 패닝 시 브러쉬 커서 잔상 방지
+
         h_bar = self.horizontalScrollBar()
         v_bar = self.verticalScrollBar()
         h_bar.setValue(h_bar.value() + dx)
@@ -401,6 +410,9 @@ class VisionViewer(QGraphicsView):
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
             self._remove_cursor_item()  # 우클릭 패닝 시작 시 커서 프리뷰 숨김(잔상 방지)
+            event.accept()
+        elif event.button() == Qt.MiddleButton:
+            self.restore_requested.emit()
             event.accept()
         else:
             super().mousePressEvent(event)
