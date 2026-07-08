@@ -31,6 +31,7 @@ try:
         fetch_review_tiles as _db_fetch,
         get_settings as _db_get_settings,
         save_user_verdict as _db_save_verdict,
+        get_tile_image as _db_get_tile_image,
     )
     _DB_ENABLED = True
 except Exception as _e:
@@ -212,12 +213,38 @@ class MainWindow(QMainWindow):
         for key, dx, dy in [(Qt.Key_W, 0, -PAN), (Qt.Key_S, 0, PAN),
                              (Qt.Key_A, -PAN, 0), (Qt.Key_D, PAN, 0)]:
             sc = QShortcut(QKeySequence(key), self)
+            sc.setContext(Qt.ApplicationShortcut)
             sc.activated.connect(lambda _dx=dx, _dy=dy: self._local_view.pan(_dx, _dy))
 
         sc_q = QShortcut(QKeySequence(Qt.Key_Q), self)
+        sc_q.setContext(Qt.ApplicationShortcut)
         sc_q.activated.connect(lambda: self._local_view.zoom(zoom_in=False))
         sc_e = QShortcut(QKeySequence(Qt.Key_E), self)
+        sc_e.setContext(Qt.ApplicationShortcut)
         sc_e.activated.connect(lambda: self._local_view.zoom(zoom_in=True))
+
+        # F5: 현재 화면(브러쉬 반영본) 재추론
+        self._sc_reinfer = QShortcut(QKeySequence(Qt.Key_F5), self)
+        self._sc_reinfer.setContext(Qt.ApplicationShortcut)
+        self._sc_reinfer.activated.connect(self._reinfer_current)
+
+        # -/+: 브러쉬 크기 조절
+        self._sc_brush_dec = QShortcut(QKeySequence(Qt.Key_Minus), self)
+        self._sc_brush_dec.setContext(Qt.ApplicationShortcut)
+        self._sc_brush_dec.activated.connect(lambda: self._adjust_brush_size(-2))
+
+        for key in (Qt.Key_Plus, Qt.Key_Equal):
+            sc = QShortcut(QKeySequence(key), self)
+            sc.setContext(Qt.ApplicationShortcut)
+            sc.activated.connect(lambda: self._adjust_brush_size(2))
+
+        # ESC: 현재 타일 판정 취소 (pending으로 리셋)
+        self._sc_cancel = QShortcut(QKeySequence(Qt.Key_Escape), self)
+        self._sc_cancel.setContext(Qt.ApplicationShortcut)
+        self._sc_cancel.activated.connect(self._cancel_current_verdict)
+
+        # 휠클릭: 브러쉬 수정 내용을 DB 원본으로 복원
+        self._local_view.restore_requested.connect(self._restore_current_tile)
 
     # ── 모델 로딩 ──────────────────────────────────────────────
 
@@ -483,6 +510,8 @@ class MainWindow(QMainWindow):
     def keyPressEvent(self, event):
         if event.key() == Qt.Key_Shift and not event.isAutoRepeat():
             self._local_view.set_overlay_visible(False)
+        elif event.key() == Qt.Key_Control and not event.isAutoRepeat():
+            self._focus_first_pending()
         else:
             super().keyPressEvent(event)
 
@@ -528,6 +557,127 @@ class MainWindow(QMainWindow):
     def _navigate_next(self):
         if self._current_index < len(self._tiles) - 1:
             self._filmstrip.setCurrentRow(self._current_index + 1)
+
+    # ── F5 재추론 / 브러쉬 / ESC / Ctrl / 휠클릭 ──────────────────
+
+    def _reinfer_current(self):
+        """현재 화면(브러쉬 반영본)을 재추론하여 detections/crops를 갱신."""
+        if not (0 <= self._current_index < len(self._tiles)):
+            return
+        if self._worker is None:
+            return
+
+        entry = self._tiles[self._current_index]
+        result = self._worker.run_single_image_sync(entry.img_bgr)
+        detections = result.get("detections", [])
+        crops = result.get("crops", [])
+
+        if not detections:
+            self._remove_tile_at(self._current_index)
+            return
+
+        entry.detections = detections
+        entry.crops = crops
+        entry.verdict = "pending"
+        if _DB_ENABLED:
+            try:
+                _db_save_verdict(entry.tile_id, None)
+            except Exception as e:
+                print(f"[DB] 판정 리셋 실패 (tile_id={entry.tile_id}): {e}")
+
+        self._update_thumbnail(self._current_index)
+        self._on_filmstrip_selection(self._current_index)
+
+    def _remove_tile_at(self, index: int):
+        """detection이 모두 사라진 타일을 필름스트립/목록에서 제거.
+
+        Qt는 현재 선택된 행을 takeItem()으로 지우면 내부 currentRow를
+        자동으로 재조정하는데, 그 값이 이후 우리가 호출하는 setCurrentRow()의
+        인자와 우연히 같아지면 "값이 안 바뀌었다"고 보고 currentRowChanged
+        시그널을 발동시키지 않는다. 화면 갱신(_on_filmstrip_selection)이
+        오직 이 시그널에만 걸려 있으면 갱신이 누락될 수 있으므로, 시그널
+        발동 여부와 무관하게 화면 갱신 함수를 항상 직접 호출한다.
+        """
+        if not (0 <= index < len(self._tiles)):
+            return
+
+        self._filmstrip.currentRowChanged.disconnect(self._on_filmstrip_selection)
+        try:
+            del self._tiles[index]
+            self._filmstrip.takeItem(index)
+            new_index = min(index, len(self._tiles) - 1) if self._tiles else -1
+            if new_index >= 0:
+                self._filmstrip.setCurrentRow(new_index)
+        finally:
+            self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
+
+        if new_index == -1:
+            self._current_index = -1
+            self._local_view.clear_all()
+            self._global_scene.clear()
+            self._update_status()
+        else:
+            self._on_filmstrip_selection(new_index)
+
+    def _adjust_brush_size(self, delta: int):
+        """브러쉬 크기를 delta만큼 조절."""
+        current = self._local_view.get_brush_size()
+        self._local_view.set_brush_size(current + delta)
+
+    def _focus_first_pending(self):
+        """Ctrl: 아직 REVIEW 체크하지 않은 가장 앞쪽 타일로 포커스 이동."""
+        for i, entry in enumerate(self._tiles):
+            if entry.verdict == "pending":
+                if i != self._current_index:
+                    self._filmstrip.setCurrentRow(i)
+                return
+
+    def _cancel_current_verdict(self):
+        """ESC: 현재 타일의 판정(결함 1~6 또는 PASS)을 취소하고 pending으로 리셋."""
+        if not (0 <= self._current_index < len(self._tiles)):
+            return
+
+        entry = self._tiles[self._current_index]
+        if entry.verdict == "pending":
+            return
+
+        entry.verdict = "pending"
+        if _DB_ENABLED:
+            try:
+                _db_save_verdict(entry.tile_id, None)
+            except Exception as e:
+                print(f"[DB] 판정 취소 실패 (tile_id={entry.tile_id}): {e}")
+
+        self._update_thumbnail(self._current_index)
+
+    def _restore_current_tile(self):
+        """휠클릭: 브러쉬로 수정한 이미지를 DB의 원본 타일 이미지로 복원."""
+        if not (0 <= self._current_index < len(self._tiles)):
+            return
+        if not _DB_ENABLED:
+            return
+
+        entry = self._tiles[self._current_index]
+        try:
+            blob = _db_get_tile_image(entry.tile_id)
+        except Exception as e:
+            print(f"[DB] 원본 이미지 조회 실패 (tile_id={entry.tile_id}): {e}")
+            return
+        if blob is None:
+            return
+
+        buf = np.frombuffer(blob, dtype=np.uint8)
+        restored_bgr = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+        if restored_bgr is None:
+            return
+
+        entry.img_bgr = restored_bgr
+        self._local_view.set_image(restored_bgr)
+        self._local_view.set_detections(
+            entry.detections,
+            highlight_index=0 if entry.detections else -1,
+            per_class_bands=self._per_class_bands,
+        )
 
     # ── 종료 ───────────────────────────────────────────────────
 

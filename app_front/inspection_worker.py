@@ -1,6 +1,7 @@
 # PCB 타일 단위 자동 검사 워커 (서펜타인 스캔 + 5K-Fold WBF 앙상블)
 
 import math
+import sys
 import time
 import threading
 from pathlib import Path
@@ -8,6 +9,20 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
+
+# ── 프로젝트 루트 (main_ui.py의 import 순서와 무관하게 독립적으로 확보) ──
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+try:
+    from db.database import get_settings as _db_get_settings
+    _DB_ENABLED = True
+except Exception:
+    _DB_ENABLED = False
+
+# 결함 클래스 (data.yaml 기준) — Options 실시간 재조회에 사용
+DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
 
 class InspectionWorker(QThread):
@@ -39,13 +54,14 @@ class InspectionWorker(QThread):
         """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
-        self._per_class_bands = per_class_bands
+        # public — Options 실시간 반영을 위해 워커 자신이 매 타일 직전 DB에서 갱신
+        self.per_class_bands = per_class_bands
         # WBF 및 model.predict의 전역 최소 신뢰도 = 가장 낮은 review_min
         self._global_floor = min(
             (band[0] for band in per_class_bands.values()),
             default=0.30,
         )
-        self._iou_thresh = iou_thresh
+        self.iou_thresh = iou_thresh
         self._device = device
         self._image_paths = []
         self._models = []
@@ -57,6 +73,29 @@ class InspectionWorker(QThread):
     def set_image_paths(self, paths: list):
         """검사 대상 이미지 경로 리스트 설정."""
         self._image_paths = [str(p) for p in paths]
+
+    def _refresh_bands_from_db(self):
+        """DB에서 최신 Options(REVIEW 밴드/IoU)를 읽어 자신의 속성을 갱신.
+
+        타일 처리 직전마다 호출되어 Options 변경이 다음 타일부터 즉시 반영되게 한다.
+        DB 조회 실패 시 마지막으로 알려진 값을 그대로 유지한다.
+        """
+        if not _DB_ENABLED:
+            return
+        try:
+            s = _db_get_settings()
+            new_bands = {
+                i: (
+                    int(s.get(f"review_min_{cls}", 30)) / 100.0,
+                    int(s.get(f"review_max_{cls}", 70)) / 100.0,
+                )
+                for i, cls in enumerate(DEFECT_CLASSES)
+            }
+            self.per_class_bands = new_bands
+            self._global_floor = min(b[0] for b in new_bands.values())
+            self.iou_thresh = float(s.get("iou_threshold", 0.45))
+        except Exception:
+            pass
 
     def pause(self):
         """검사 일시정지."""
@@ -143,6 +182,9 @@ class InspectionWorker(QThread):
                 self._pause_event.wait()
                 if not self._running:
                     break
+
+                # Options(REVIEW 밴드/IoU) 실시간 반영 — 타일마다 DB 재조회
+                self._refresh_bands_from_db()
 
                 # Extract tile
                 tile = self._extract_tile(img, row, col)
@@ -249,6 +291,11 @@ class InspectionWorker(QThread):
         """
         from ensemble_boxes import weighted_boxes_fusion
 
+        # 타일 처리 도중 Options가 갱신되어도 내적 일관성을 유지하도록 1회 스냅샷
+        bands = self.per_class_bands
+        iou_thresh = self.iou_thresh
+        global_floor = self._global_floor
+
         h, w = img.shape[:2]
         all_boxes_norm = []
         all_scores = []
@@ -257,8 +304,8 @@ class InspectionWorker(QThread):
         for model in self._models:
             res = model.predict(
                 img,
-                conf=self._global_floor,
-                iou=self._iou_thresh,
+                conf=global_floor,
+                iou=iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -282,15 +329,15 @@ class InspectionWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=self._iou_thresh,
-            skip_box_thr=self._global_floor,
+            iou_thr=iou_thresh,
+            skip_box_thr=global_floor,
         )
 
         detections = []
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
             conf_score = float(score)
             cls_id = int(label)
-            r_min, _ = self._per_class_bands.get(cls_id, (self._global_floor, 1.0))
+            r_min, _ = bands.get(cls_id, (global_floor, 1.0))
             if conf_score < r_min:
                 continue
             x1n, y1n, x2n, y2n = box_n
@@ -317,13 +364,17 @@ class InspectionWorker(QThread):
         if not detections:
             return "PASS"
 
+        # 타일 처리 도중 Options가 갱신되어도 내적 일관성을 유지하도록 1회 스냅샷
+        bands = self.per_class_bands
+        global_floor = self._global_floor
+
         has_fail = False
         has_review = False
 
         for det in detections:
             cls_id = det["class_id"]
             conf = det["confidence"]
-            r_min, r_max = self._per_class_bands.get(cls_id, (self._global_floor, 0.70))
+            r_min, r_max = bands.get(cls_id, (global_floor, 0.70))
             if conf > r_max:
                 has_fail = True
                 break

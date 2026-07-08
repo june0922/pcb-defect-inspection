@@ -134,6 +134,16 @@ def fetch_review_tiles(after_id: int = 0) -> list[dict]:
     return [{"id": r[0], "tile_image": r[1]} for r in rows]
 
 
+def get_tile_image(tile_id: int) -> bytes | None:
+    """단일 타일의 원본 PNG BLOB 조회. 없으면 None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT tile_image FROM tiles WHERE id=?",
+            (tile_id,),
+        ).fetchone()
+    return row[0] if row else None
+
+
 def count_by_verdict() -> dict:
     """판정별 타일 수 집계."""
     with _connect() as conn:
@@ -165,10 +175,16 @@ def clear_all() -> None:
 
 
 def get_db_stats() -> dict:
-    """타일 수(판정별) + DB 파일 크기 반환."""
+    """타일 수(판정별) + DB 파일 크기(WAL/SHM 포함) 반환."""
     stats = count_by_verdict()
     stats["_total"] = sum(stats.values())
-    stats["_db_bytes"] = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+
+    total_bytes = DB_PATH.stat().st_size if DB_PATH.exists() else 0
+    for suffix in ("-wal", "-shm"):
+        wal_path = DB_PATH.with_name(DB_PATH.name + suffix)
+        if wal_path.exists():
+            total_bytes += wal_path.stat().st_size
+    stats["_db_bytes"] = total_bytes
     return stats
 
 

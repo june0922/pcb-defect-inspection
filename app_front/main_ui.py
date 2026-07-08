@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QGridLayout, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem,
     QHeaderView,
 )
-from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer
+from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer, QEvent
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence,
     QFont,
@@ -50,6 +50,7 @@ except Exception as _e:
 # ── 상수 ───────────────────────────────────
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
+FILMSTRIP_MAX_ITEMS = 200  # 24시간 상시 구동 대비 최근 N개만 유지
 
 VERDICT_COLORS = {
     "PASS":   QColor(0, 200, 0),
@@ -378,8 +379,11 @@ class MainWindow(QMainWindow):
         self._h_splitter.setSizes([300, 700])
 
         # ── 하단: FilmStrip ──
+        # app_front는 24시간 상시 구동되며 썸네일 클릭 선택/개별 판정 의미가 없으므로
+        # 클릭 선택 하이라이트와 마우스 휠 스크롤 이동을 비활성화한다(app_back과 다른 정책).
         self._filmstrip = QListWidget()
         self._filmstrip.setFocusPolicy(Qt.NoFocus)
+        self._filmstrip.setSelectionMode(QListWidget.NoSelection)
         self._filmstrip.setViewMode(QListWidget.IconMode)
         self._filmstrip.setFlow(QListWidget.LeftToRight)
         self._filmstrip.setWrapping(False)
@@ -396,11 +400,8 @@ class MainWindow(QMainWindow):
                 border: 1px solid #333;
             }
             QListWidget::item { padding: 2px; }
-            QListWidget::item:selected {
-                background-color: #2a4a7a;
-                border: 2px solid #5599ff;
-            }
         """)
+        self._filmstrip.viewport().installEventFilter(self)
         self._v_splitter.addWidget(self._filmstrip)
 
         self._v_splitter.setStretchFactor(0, 8)
@@ -507,7 +508,10 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "오류", f"DB 통계 조회 실패: {e}")
 
     def _reset_db(self):
-        """DB 초기화 (tiles 삭제). 진행 중인 Worker는 중단하지 않음."""
+        """DB 초기화 (tiles 삭제). 진행 중인 Worker는 중단하지 않음.
+        UI 통계 패널(숫자)은 DB와 맞춰 리셋하되, 필름스트립/GlobalView/LocalView 화면은
+        진행 중인 검사가 갑자기 비어 보이지 않도록 그대로 유지한다.
+        """
         reply = QMessageBox.question(
             self, "DB 초기화",
             "모든 검사 데이터를 삭제하시겠습니까?\n"
@@ -521,6 +525,9 @@ class MainWindow(QMainWindow):
             return
         try:
             _db_clear()
+            self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
+            self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
+            self._update_statistics_display()
             self._status_label.setText("DB가 초기화되었습니다.")
         except Exception as e:
             QMessageBox.warning(self, "오류", f"DB 초기화 실패: {e}")
@@ -546,8 +553,10 @@ class MainWindow(QMainWindow):
         if self._current_folder is not None:
             reply = QMessageBox.question(
                 self, "Open New Folder",
-                "새 폴더를 열면 진행 중인 검사가 초기화됩니다.\n계속하시겠습니까?",
+                "새 폴더를 열면 진행 중인 검사와 모든 검사 데이터(DB 포함)가 삭제되고\n"
+                "처음부터 다시 시작합니다. 계속하시겠습니까?",
                 QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
             )
             if reply != QMessageBox.Yes:
                 return
@@ -626,18 +635,12 @@ class MainWindow(QMainWindow):
         self._worker.progress.connect(self._on_progress)
         self._worker.error.connect(self._on_error)
 
-        # DB 초기화 — 새 검사 시작 시 이전 데이터 삭제 여부 확인
+        # DB 초기화 — 두 번째 폴더부터는 위 통합 확인창에서 이미 동의를 받았으므로
+        # 조건 없이 항상 초기화한다(최초 실행 시에는 지울 데이터가 없어도 안전하게 init만 수행).
         if _DB_ENABLED:
             try:
                 _db_init()
-                reply = QMessageBox.question(
-                    self, "새 검사 시작",
-                    "이전 검사 데이터를 지우고 새 검사를 시작할까요?\n\n아니오를 선택하면 이전 데이터에 이어서 저장됩니다.",
-                    QMessageBox.Yes | QMessageBox.No,
-                    QMessageBox.Yes,
-                )
-                if reply == QMessageBox.Yes:
-                    _db_clear()
+                _db_clear()
             except Exception as e:
                 print(f"[DB] 초기화 실패: {e}")
 
@@ -801,6 +804,10 @@ class MainWindow(QMainWindow):
         )
         self._filmstrip.addItem(item)
 
+        # 화면 밖으로 밀려난 오래된 썸네일 제거 (장기간 구동 시 메모리 누적 방지)
+        while self._filmstrip.count() > FILMSTRIP_MAX_ITEMS:
+            self._filmstrip.takeItem(0)
+
         # 자동 스크롤: 최신 타일이 보이도록
         self._filmstrip.scrollToItem(item)
 
@@ -910,6 +917,14 @@ class MainWindow(QMainWindow):
         if colored_path.exists():
             return colored_path
         return None
+
+    # ── 이벤트 필터 ────────────────────────────────────────────
+
+    def eventFilter(self, watched, event):
+        """필름스트립 뷰포트의 마우스 휠 스크롤을 차단 (스크롤바 드래그는 유지)."""
+        if watched is self._filmstrip.viewport() and event.type() == QEvent.Wheel:
+            return True
+        return super().eventFilter(watched, event)
 
     # ── 종료 처리 ──────────────────────────────────────────────
 
