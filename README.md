@@ -1,4 +1,4 @@
-# YOLOv8 기반 PCB 결함 탐지 및 Review Station 시스템
+# YOLO26s 기반 PCB 결함 탐지 및 Review Station 시스템
 
 ## app_front
 <img width="800" height="381" alt="app_front-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/c9a249a4-1c55-4f42-b29d-a08e6bccb150" />
