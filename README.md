@@ -1,7 +1,7 @@
-# YOLOv8 기반 PCB 결함 탐지 및 Review Station 시스템
+<img width="800" height="381" alt="app_front-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/da8926d3-a955-402e-981f-6f9b24edf51d" /># YOLOv8 기반 PCB 결함 탐지 및 Review Station 시스템
 
 ## app_front
-<img width="1917" height="927" alt="image" src="https://github.com/user-attachments/assets/a744c20b-b39a-4a02-aa03-f7e2dfae789c" />
+<img width="800" height="381" alt="app_front-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/c9a249a4-1c55-4f42-b29d-a08e6bccb150" />
 
 ## app_back
 <img width="1912" height="982" alt="image" src="https://github.com/user-attachments/assets/6df9c74b-e07f-4d35-afdc-db5250259747" />
