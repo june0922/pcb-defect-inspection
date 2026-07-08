@@ -1,20 +1,53 @@
-# Notebooks Directory
+# notebooks — Google Colab 기반 학습 · 튜닝 노트북
 
-본 `notebooks` 폴더는 Google Colab과 같은 클라우드 환경에서 모델을 학습하고 하이퍼파라미터를 튜닝하기 위한 Jupyter Notebook(`.ipynb`) 파일들을 포함하고 있습니다.
+GPU 서버나 Google Colab에서 모델을 학습하고 하이퍼파라미터를 튜닝하기 위한  
+Jupyter Notebook 래퍼 모음입니다. Google Drive와 연동하여 데이터와 가중치를 관리합니다.
 
-## 주요 파일 안내
+---
 
-* **`pcb_train_colab.ipynb`**
-  * 단일 모델(YOLOv8) 학습을 진행하기 위한 노트북입니다.
-  * Google Drive와 마운트하여 데이터를 로드하고, 학습된 가중치(`weights`) 및 훈련 과정 로그를 저장할 수 있습니다.
-* **`pcb_kfold_colab.ipynb`**
-  * 5-Fold Cross Validation(교차 검증)을 적용하여 여러 개의 모델을 앙상블 학습하기 위한 노트북입니다.
-  * 최종적으로 `weights` 폴더에 `best_fold_1.pt` ~ `best_fold_5.pt` 가중치를 생성하는 파이프라인이 구현되어 있습니다.
-* **`pcb_tune_colab.ipynb`**
-  * YOLOv8 모델의 성능을 극대화하기 위해 Ray Tune 기반의 하이퍼파라미터 최적화(Hyperparameter Tuning)를 수행하는 노트북입니다.
+## 파일 구성
+
+| 파일 | 목적 | Drive 연동 | resume 지원 |
+|------|------|-----------|------------|
+| `pcb_train_colab.ipynb` | 단일 모델(yolo26s) 학습 | O | O |
+| `pcb_kfold_colab.ipynb` | 5-Fold K-Fold 앙상블 학습 → best_fold_1~5.pt 생성 | O | O |
+| `pcb_tune_colab.ipynb` | Ray Tune 기반 하이퍼파라미터 탐색 | O | X |
+| `pcb_train_tune_colab.ipynb` | 튜닝 결과를 적용한 최종 학습 | O | O |
+
+---
+
+## 실행 순서
+
+```
+1. pcb_tune_colab.ipynb
+   └─► Ray Tune으로 최적 하이퍼파라미터 탐색
+         └─► 결과를 config.yaml에 반영
+
+2. pcb_kfold_colab.ipynb  (또는 pcb_train_colab.ipynb)
+   └─► 5-Fold 학습 → weights/best_fold_1~5.pt 생성
+         └─► 이 가중치가 app_front/app_back에서 사용됨
+
+3. (선택) pcb_train_tune_colab.ipynb
+   └─► 튜닝된 파라미터로 단일 모델 정밀 학습
+```
+
+---
 
 ## 사용 방법
 
-1. 본 폴더 내의 `.ipynb` 파일을 Google Colab에 업로드하거나, GitHub 계정과 Colab을 연동하여 파일을 엽니다.
-2. 각 노트북의 첫 번째 셀부터 순서대로 실행합니다. (런타임 유형을 **T4 GPU** 이상으로 설정할 것을 권장합니다.)
-3. 필요에 따라 Google Drive 경로가 설정된 부분(데이터셋 경로, 모델 저장 경로 등)을 본인 환경에 맞게 수정하여 사용하십시오.
+1. `.ipynb` 파일을 Google Colab에 업로드하거나 GitHub에서 직접 열기
+2. 런타임 유형을 **T4 GPU 이상**으로 설정
+3. 첫 번째 셀부터 순서대로 실행 (Drive 마운트 → 패키지 설치 → 학습)
+4. Google Drive 경로 설정 셀에서 본인 Drive 경로로 수정 후 실행
+
+---
+
+## 로컬 GPU 서버에서 실행할 경우
+
+노트북 대신 `scripts/` 폴더의 스크립트를 사용하세요:
+
+```bash
+bash scripts/run_preprocess.sh   # 전처리
+bash scripts/run_kfold.sh        # 5-Fold 학습
+bash scripts/run_tune.sh         # 하이퍼파라미터 튜닝
+```
