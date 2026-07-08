@@ -81,7 +81,6 @@ if /I "%kfold_action%"=="O" (
 echo K-Fold training cancelled by user.
 pause
 exit /b 0
-echo.
 
 :start_kfold
 echo ========================================================
