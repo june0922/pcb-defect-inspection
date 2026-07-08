@@ -1,5 +1,6 @@
 # PCB 타일 단위 자동 검사 워커 (서펜타인 스캔 + 5K-Fold WBF 앙상블)
 
+import json
 import math
 import sys
 import time
@@ -21,8 +22,9 @@ try:
 except Exception:
     _DB_ENABLED = False
 
-# 결함 클래스 (data.yaml 기준) — Options 실시간 재조회에 사용
-DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+# WBF 앙상블 병합용 IoU (YOLO26s는 NMS-free라 model.predict의 iou는 무의미하지만,
+# 서로 다른 모델의 박스를 같은 객체로 묶는 WBF 클러스터링 자체에는 필요해 내부 상수로 유지)
+_WBF_IOU_THR = 0.45
 
 
 class InspectionWorker(QThread):
@@ -40,17 +42,18 @@ class InspectionWorker(QThread):
     progress = pyqtSignal(int, int)            # current_tile_global, total_tiles_global
     error = pyqtSignal(str)
 
-    TILE_SIZE = 640
     THUMB_SIZE = 96
 
     def __init__(self, weight_paths,
                  per_class_bands: dict,
-                 iou_thresh: float = 0.45,
+                 tile_size: int = 640,
+                 overlap_pct: int = 0,
                  device: str = "cpu",
                  parent=None):
         """
-        per_class_bands: {class_id: (review_min, review_max)} — 0.0~1.0 비율
+        per_class_bands: {class_name: (review_min, review_max)} — 0.0~1.0 비율
             review_min 미만 → PASS, review_min 이상 → REVIEW, review_max 초과 → FAIL
+            활성 클래스 목록에 없는 이름의 검출은 판정에서 제외된다.
         """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
@@ -61,7 +64,9 @@ class InspectionWorker(QThread):
             (band[0] for band in per_class_bands.values()),
             default=0.30,
         )
-        self.iou_thresh = iou_thresh
+        # public — 이미지 시작 시점에 워커 자신이 DB에서 갱신 (다음 이미지부터 적용)
+        self.tile_size = tile_size
+        self.overlap_pct = overlap_pct
         self._device = device
         self._image_paths = []
         self._models = []
@@ -75,25 +80,43 @@ class InspectionWorker(QThread):
         self._image_paths = [str(p) for p in paths]
 
     def _refresh_bands_from_db(self):
-        """DB에서 최신 Options(REVIEW 밴드/IoU)를 읽어 자신의 속성을 갱신.
+        """DB에서 최신 Options(클래스별 REVIEW 밴드)를 읽어 자신의 속성을 갱신.
 
         타일 처리 직전마다 호출되어 Options 변경이 다음 타일부터 즉시 반영되게 한다.
+        밴드는 class_name(이름) 기준으로 키를 삼는다 — class_id는 모델 가중치에
+        고정된 값이라 클래스 목록이 자유롭게 추가/삭제되면 인덱스가 밀릴 수 있다.
         DB 조회 실패 시 마지막으로 알려진 값을 그대로 유지한다.
         """
         if not _DB_ENABLED:
             return
         try:
             s = _db_get_settings()
+            class_names = json.loads(s.get("defect_classes", "[]"))
             new_bands = {
-                i: (
-                    int(s.get(f"review_min_{cls}", 30)) / 100.0,
-                    int(s.get(f"review_max_{cls}", 70)) / 100.0,
+                name: (
+                    int(s.get(f"review_min_{name}", 30)) / 100.0,
+                    int(s.get(f"review_max_{name}", 70)) / 100.0,
                 )
-                for i, cls in enumerate(DEFECT_CLASSES)
+                for name in class_names
             }
-            self.per_class_bands = new_bands
-            self._global_floor = min(b[0] for b in new_bands.values())
-            self.iou_thresh = float(s.get("iou_threshold", 0.45))
+            if new_bands:
+                self.per_class_bands = new_bands
+                self._global_floor = min(b[0] for b in new_bands.values())
+        except Exception:
+            pass
+
+    def _refresh_tile_geometry_from_db(self):
+        """DB에서 최신 타일 크기/오버랩을 읽어 자신의 속성을 갱신.
+
+        이미지 처리 시작 시점에 1회만 호출되어, 타일 크기/오버랩 변경이
+        "다음 이미지부터" 적용되게 한다(이미지 중간에 그리드가 바뀌는 위험 방지).
+        """
+        if not _DB_ENABLED:
+            return
+        try:
+            s = _db_get_settings()
+            self.tile_size = int(s.get("tile_size", 640))
+            self.overlap_pct = int(s.get("overlap_pct", 0))
         except Exception:
             pass
 
@@ -148,7 +171,7 @@ class InspectionWorker(QThread):
             if img is None:
                 continue
             h, w = img.shape[:2]
-            rows, cols = self.compute_grid(h, w)
+            rows, cols = self.compute_grid(h, w, tile_size=self.tile_size, overlap_pct=self.overlap_pct)
             total_tiles += rows * cols
             valid_paths.append(img_path)
             del img
@@ -168,8 +191,11 @@ class InspectionWorker(QThread):
             if img is None:
                 continue
 
+            # 타일 크기/오버랩 실시간 반영 — 이미지 시작 시 1회만 재조회(다음 이미지부터 적용)
+            self._refresh_tile_geometry_from_db()
+
             h, w = img.shape[:2]
-            rows, cols = self.compute_grid(h, w)
+            rows, cols = self.compute_grid(h, w, tile_size=self.tile_size, overlap_pct=self.overlap_pct)
 
             # Determine scan direction
             reverse = (img_idx % 2 == 1)
@@ -183,7 +209,7 @@ class InspectionWorker(QThread):
                 if not self._running:
                     break
 
-                # Options(REVIEW 밴드/IoU) 실시간 반영 — 타일마다 DB 재조회
+                # Options(클래스별 REVIEW 밴드) 실시간 반영 — 타일마다 DB 재조회
                 self._refresh_bands_from_db()
 
                 # Extract tile
@@ -253,33 +279,48 @@ class InspectionWorker(QThread):
         return order
 
     @staticmethod
-    def compute_grid(img_h: int, img_w: int, tile_size: int = 640) -> tuple:
-        """이미지 크기로부터 그리드 행/열 수 계산.
+    def _compute_stride(tile_size: int, overlap_pct: int = 0) -> int:
+        """타일 크기와 오버랩 비율(%)로부터 스캔 스트라이드(px) 계산."""
+        return max(1, round(tile_size * (1 - overlap_pct / 100.0)))
+
+    @staticmethod
+    def compute_grid(img_h: int, img_w: int, tile_size: int = 640, overlap_pct: int = 0) -> tuple:
+        """이미지 크기로부터 그리드 행/열 수 계산 (오버랩 스트라이드 기반).
+
+        타일은 stride 간격으로 배치되며 클램프하지 않는다 — 경계를 넘는 마지막
+        타일은 _extract_tile()의 흰색 패딩이 그대로 처리한다. overlap_pct=0이면
+        기존 ceil(L/tile_size) 동작과 100% 동일하다.
         Returns: (rows, cols)
         """
-        rows = math.ceil(img_h / tile_size)
-        cols = math.ceil(img_w / tile_size)
-        return rows, cols
+        stride = InspectionWorker._compute_stride(tile_size, overlap_pct)
+
+        def _count(length: int) -> int:
+            if length <= tile_size:
+                return 1
+            return math.ceil((length - tile_size) / stride) + 1
+
+        return _count(img_h), _count(img_w)
 
     def _extract_tile(self, img: np.ndarray, row: int, col: int) -> np.ndarray:
-        """이미지에서 (row, col) 위치의 640×640 타일 추출.
+        """이미지에서 (row, col) 위치의 tile_size×tile_size 타일 추출(오버랩 스트라이드 반영).
         이미지 경계를 초과하는 영역은 흰색(255)으로 패딩.
         """
         h, w = img.shape[:2]
-        y1 = row * self.TILE_SIZE
-        x1 = col * self.TILE_SIZE
-        y2 = min(y1 + self.TILE_SIZE, h)
-        x2 = min(x1 + self.TILE_SIZE, w)
+        stride = self._compute_stride(self.tile_size, self.overlap_pct)
+        y1 = row * stride
+        x1 = col * stride
+        y2 = min(y1 + self.tile_size, h)
+        x2 = min(x1 + self.tile_size, w)
 
         tile = img[y1:y2, x1:x2].copy()
 
-        # Pad with white if tile is smaller than TILE_SIZE
+        # Pad with white if tile is smaller than tile_size
         tile_h, tile_w = tile.shape[:2]
-        if tile_h < self.TILE_SIZE or tile_w < self.TILE_SIZE:
+        if tile_h < self.tile_size or tile_w < self.tile_size:
             if len(tile.shape) == 2:  # Grayscale
-                padded = np.full((self.TILE_SIZE, self.TILE_SIZE), 255, dtype=np.uint8)
+                padded = np.full((self.tile_size, self.tile_size), 255, dtype=np.uint8)
             else:  # Color
-                padded = np.full((self.TILE_SIZE, self.TILE_SIZE, tile.shape[2]), 255, dtype=np.uint8)
+                padded = np.full((self.tile_size, self.tile_size, tile.shape[2]), 255, dtype=np.uint8)
             padded[:tile_h, :tile_w] = tile
             tile = padded
 
@@ -287,13 +328,13 @@ class InspectionWorker(QThread):
 
     def _ensemble_predict(self, img: np.ndarray) -> list:
         """5개 모델 예측 → WBF 병합 → 결함 리스트 반환.
-        global_floor (6개 클래스 review_min 최솟값)을 model.predict 기준으로 사용.
+        global_floor (활성 클래스 review_min 최솟값)을 model.predict 기준으로 사용.
+        활성 클래스 목록에 없는 이름의 검출은 결과에서 제외한다.
         """
         from ensemble_boxes import weighted_boxes_fusion
 
         # 타일 처리 도중 Options가 갱신되어도 내적 일관성을 유지하도록 1회 스냅샷
         bands = self.per_class_bands
-        iou_thresh = self.iou_thresh
         global_floor = self._global_floor
 
         h, w = img.shape[:2]
@@ -302,10 +343,10 @@ class InspectionWorker(QThread):
         all_labels = []
 
         for model in self._models:
+            # YOLO26s는 NMS-free(end2end)라 iou 인자는 무시되므로 전달하지 않는다.
             res = model.predict(
                 img,
                 conf=global_floor,
-                iou=iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -329,7 +370,7 @@ class InspectionWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=iou_thresh,
+            iou_thr=_WBF_IOU_THR,
             skip_box_thr=global_floor,
         )
 
@@ -337,7 +378,11 @@ class InspectionWorker(QThread):
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
             conf_score = float(score)
             cls_id = int(label)
-            r_min, _ = bands.get(cls_id, (global_floor, 1.0))
+            class_name = self._class_names.get(cls_id, str(cls_id))
+            band = bands.get(class_name)
+            if band is None:
+                continue  # 활성 클래스 목록에 없음 — 검토 대상 아님
+            r_min, _ = band
             if conf_score < r_min:
                 continue
             x1n, y1n, x2n, y2n = box_n
@@ -348,7 +393,7 @@ class InspectionWorker(QThread):
                 ],
                 "bbox_norm": [float(x1n), float(y1n), float(x2n), float(y2n)],
                 "class_id": cls_id,
-                "class_name": self._class_names.get(cls_id, str(cls_id)),
+                "class_name": class_name,
                 "confidence": conf_score,
             })
 
@@ -372,9 +417,8 @@ class InspectionWorker(QThread):
         has_review = False
 
         for det in detections:
-            cls_id = det["class_id"]
             conf = det["confidence"]
-            r_min, r_max = bands.get(cls_id, (global_floor, 0.70))
+            r_min, r_max = bands.get(det["class_name"], (global_floor, 0.70))
             if conf > r_max:
                 has_fail = True
                 break
@@ -388,5 +432,5 @@ class InspectionWorker(QThread):
         return "PASS"
 
     def _create_thumbnail(self, tile: np.ndarray) -> np.ndarray:
-        """640×640 타일을 96×96 썸네일로 리사이즈."""
+        """타일을 96×96 썸네일로 리사이즈."""
         return cv2.resize(tile, (self.THUMB_SIZE, self.THUMB_SIZE), interpolation=cv2.INTER_AREA)
