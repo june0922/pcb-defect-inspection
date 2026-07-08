@@ -23,13 +23,22 @@ class InferenceWorker(QThread):
     THUMB_SIZE = 96
     CROP_PAD_RATIO = 0.3
 
-    def __init__(self, weight_paths, min_conf=0.5, max_conf=1.0, iou_thresh=0.45,
-                 device="cpu", parent=None):
+    def __init__(self, weight_paths,
+                 min_conf: float = 0.30,
+                 max_conf: float = 1.0,
+                 iou_thresh: float = 0.45,
+                 device: str = "cpu",
+                 parent=None):
+        """
+        min_conf: WBF 및 model.predict 하한 (DB settings의 global_floor)
+        max_conf: 표시 상한 (기본 1.0 — 모든 검출 표시)
+        iou_thresh: WBF IoU 임계값 (DB settings의 iou_threshold)
+        """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
-        self._min_conf = min_conf
-        self._max_conf = max_conf
-        self._iou_thresh = iou_thresh
+        self.min_conf = min_conf      # public — poll 중 DB 변경 감지 시 직접 업데이트
+        self.max_conf = max_conf
+        self.iou_thresh = iou_thresh  # public — poll 중 업데이트
         self._device = device
         self._image_paths = []
         self._models = []
@@ -130,8 +139,8 @@ class InferenceWorker(QThread):
         for model in self._models:
             res = model.predict(
                 img_source,
-                conf=self._min_conf,
-                iou=self._iou_thresh,
+                conf=self.min_conf,
+                iou=self.iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -156,14 +165,14 @@ class InferenceWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=self._iou_thresh,
-            skip_box_thr=self._min_conf,
+            iou_thr=self.iou_thresh,
+            skip_box_thr=self.min_conf,
         )
 
         detections = []
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
             conf_score = float(score)
-            if not (self._min_conf <= conf_score <= self._max_conf):
+            if not (self.min_conf <= conf_score <= self.max_conf):
                 continue
                 
             x1n, y1n, x2n, y2n = box_n
@@ -203,8 +212,8 @@ class InferenceWorker(QThread):
         for model in self._models:
             res = model.predict(
                 img,
-                conf=self._min_conf,
-                iou=self._iou_thresh,
+                conf=self.min_conf,
+                iou=self.iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -228,14 +237,14 @@ class InferenceWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=self._iou_thresh,
-            skip_box_thr=self._min_conf,
+            iou_thr=self.iou_thresh,
+            skip_box_thr=self.min_conf,
         )
 
         detections = []
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
             conf_score = float(score)
-            if not (self._min_conf <= conf_score <= self._max_conf):
+            if not (self.min_conf <= conf_score <= self.max_conf):
                 continue
 
             x1n, y1n, x2n, y2n = box_n
