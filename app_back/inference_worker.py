@@ -1,4 +1,4 @@
-# 5-Fold K-Fold YOLOv8 앙상블 추론 워커 (QThread 기반 비동기 처리)
+# 5-Fold K-Fold YOLO26s 앙상블 추론 워커 (QThread 기반 비동기 처리)
 
 import sys
 from pathlib import Path
