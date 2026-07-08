@@ -26,11 +26,19 @@ sys.path.insert(0, str(_PROJECT_ROOT))
 
 # ── DB 연동 ────────────────────────────────
 try:
-    from db.database import init_db as _db_init, fetch_review_tiles as _db_fetch
+    from db.database import (
+        init_db as _db_init,
+        fetch_review_tiles as _db_fetch,
+        get_settings as _db_get_settings,
+        save_user_verdict as _db_save_verdict,
+    )
     _DB_ENABLED = True
 except Exception as _e:
     print(f"[DB] 연동 비활성화: {_e}")
     _DB_ENABLED = False
+
+# 결함 클래스 이름 (데이터셋 기준)
+_DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
@@ -75,7 +83,12 @@ class MainWindow(QMainWindow):
         self._current_index: int = -1
         self._last_verdict_time: float = 0.0
         self._last_shown_id: int = 0
+        self._last_session_id: str = ""
         self._worker: InferenceWorker | None = None
+
+        # DB에서 읽어온 현재 설정 (폴링마다 갱신)
+        self._per_class_bands: dict = {i: (0.30, 0.70) for i in range(6)}
+        self._iou_thresh: float = 0.45
 
         self._db_poll_timer = QTimer(self)
         self._db_poll_timer.setInterval(3000)
@@ -208,6 +221,15 @@ class MainWindow(QMainWindow):
 
     # ── 모델 로딩 ──────────────────────────────────────────────
 
+    def _parse_bands(self, s: dict) -> dict:
+        """DB settings dict → {class_id: (review_min, review_max)} (0.0~1.0 비율)."""
+        bands = {}
+        for i, cls in enumerate(_DEFECT_CLASSES):
+            r_min = int(s.get(f"review_min_{cls}", 30)) / 100.0
+            r_max = int(s.get(f"review_max_{cls}", 70)) / 100.0
+            bands[i] = (r_min, r_max)
+        return bands
+
     def _start_model_loading(self):
         weight_paths = [
             str(_PROJECT_ROOT / "weights" / f"best_fold_{i}.pt")
@@ -219,11 +241,24 @@ class MainWindow(QMainWindow):
         except ImportError:
             device = "cpu"
 
+        # DB에서 초기 설정 읽기 (실패 시 기본값 유지)
+        if _DB_ENABLED:
+            try:
+                _db_init()
+                s = _db_get_settings()
+                self._per_class_bands = self._parse_bands(s)
+                self._iou_thresh = float(s.get("iou_threshold", 0.45))
+                self._last_session_id = s.get("db_session_id", "")
+            except Exception as e:
+                print(f"[DB] 초기 설정 로드 실패: {e}")
+
+        global_floor = min(b[0] for b in self._per_class_bands.values())
+
         self._worker = InferenceWorker(
             weight_paths=weight_paths,
-            min_conf=0.3,
+            min_conf=global_floor,
             max_conf=1.0,
-            iou_thresh=0.45,
+            iou_thresh=self._iou_thresh,
             device=device,
         )
         self._worker.models_loaded.connect(self._on_models_loaded)
@@ -233,10 +268,6 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_models_loaded(self):
         if _DB_ENABLED:
-            try:
-                _db_init()
-            except Exception as e:
-                print(f"[DB] 초기화 실패: {e}")
             self._db_poll_timer.start()
             self._status_label.setText(
                 "[DB 연결됨] REVIEW 타일 대기 중... (3초마다 갱신)"
@@ -252,13 +283,39 @@ class MainWindow(QMainWindow):
     # ── DB 폴링 ────────────────────────────────────────────────
 
     def _poll_db(self):
-        """3초마다 새 REVIEW 타일을 DB에서 조회 → 추론 → FilmStrip 추가."""
+        """3초마다 DB 설정 동기화 + 새 REVIEW 타일 조회 → 추론 → FilmStrip 추가."""
         if not _DB_ENABLED or self._worker is None:
             return
+
+        # ── 설정 동기화 ──────────────────────────────────────────
+        try:
+            s = _db_get_settings()
+        except Exception as e:
+            self._status_label.setText(f"[DB 폴링 오류] {e}")
+            return
+
+        # DB 초기화/세션 변경 감지
+        current_session = s.get("db_session_id", "")
+        if current_session != self._last_session_id:
+            self._last_session_id = current_session
+            self._on_db_reset()
+            return  # 이번 폴링은 리셋 처리만
+
+        # per-class bands 및 IoU 갱신
+        new_bands = self._parse_bands(s)
+        new_iou = float(s.get("iou_threshold", 0.45))
+        bands_changed = new_bands != self._per_class_bands or new_iou != self._iou_thresh
+        self._per_class_bands = new_bands
+        self._iou_thresh = new_iou
+        if bands_changed and self._worker:
+            self._worker.min_conf = min(b[0] for b in new_bands.values())
+            self._worker.iou_thresh = new_iou
+
+        # ── 새 타일 조회 ─────────────────────────────────────────
         try:
             new_tiles = _db_fetch(after_id=self._last_shown_id)
         except Exception as e:
-            self._status_label.setText(f"[DB 폴링 오류] {e}")
+            self._status_label.setText(f"[DB 조회 오류] {e}")
             return
 
         for tile_row in new_tiles:
@@ -270,6 +327,16 @@ class MainWindow(QMainWindow):
         self._status_label.setText(
             f"[DB 연결됨] 타일 {total}건 수신 | 미검토 {pending}건"
         )
+
+    def _on_db_reset(self):
+        """DB 초기화 감지 시 FilmStrip/상태 전체 리셋."""
+        self._tiles.clear()
+        self._filmstrip.clear()
+        self._last_shown_id = 0
+        self._current_index = -1
+        self._local_view.clear_all()
+        self._global_scene.clear()
+        self._status_label.setText("DB가 초기화되었습니다. 새 검사를 기다리는 중...")
 
     def _process_tile(self, tile_row: dict):
         """PNG BLOB 디코딩 → 추론 → 타일 엔트리 생성 → FilmStrip 추가."""
@@ -393,6 +460,7 @@ class MainWindow(QMainWindow):
         self._local_view.set_detections(
             entry.detections,
             highlight_index=0 if entry.detections else -1,
+            per_class_bands=self._per_class_bands,
         )
         if entry.detections:
             x1, y1, x2, y2 = entry.detections[0]["bbox_abs"]
@@ -435,6 +503,14 @@ class MainWindow(QMainWindow):
         entry = self._tiles[self._current_index]
         was_pending = entry.verdict == "pending"
         entry.verdict = verdict
+
+        # DB에 사용자 판정 저장
+        if _DB_ENABLED:
+            try:
+                _db_save_verdict(entry.tile_id, verdict)
+            except Exception as e:
+                print(f"[DB] 판정 저장 실패 (tile_id={entry.tile_id}): {e}")
+
         self._update_thumbnail(self._current_index)
         if was_pending:
             self._advance_to_next()

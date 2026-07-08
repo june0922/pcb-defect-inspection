@@ -10,19 +10,34 @@ from PyQt5.QtGui import (
 )
 
 
-def confidence_color(conf: float) -> QColor:
-    """신호등 배색: 앙상블 신뢰도에 따른 색상 반환.
+def confidence_color(
+    conf: float,
+    cls_id: int = -1,
+    per_class_bands: dict | None = None,
+) -> QColor:
+    """클래스별 REVIEW 밴드 기반 색상 반환.
 
-    0.90 이상 → Red (확실한 불량)
-    0.70~0.89 → Yellow (모호함)
-    0.70 미만 → Gray (가짜 결함 의심)
+    per_class_bands가 주어지면 해당 클래스의 (review_min, review_max)를 기준으로:
+      conf > review_max  → Red (FAIL 수준)
+      conf >= review_min → Yellow (REVIEW 수준)
+      conf < review_min  → Gray (PASS 수준)
+
+    per_class_bands가 없으면 레거시 고정 임계값(0.70/0.90) 사용.
     """
+    if per_class_bands and cls_id in per_class_bands:
+        r_min, r_max = per_class_bands[cls_id]
+        if conf > r_max:
+            return QColor(255, 68, 68)
+        elif conf >= r_min:
+            return QColor(255, 215, 0)
+        else:
+            return QColor(136, 136, 136)
+    # 레거시 폴백
     if conf >= 0.90:
         return QColor(255, 68, 68)
     elif conf >= 0.70:
         return QColor(255, 215, 0)
-    else:
-        return QColor(136, 136, 136)
+    return QColor(136, 136, 136)
 
 
 class DefectLabel(QGraphicsItem):
@@ -144,12 +159,13 @@ class VisionViewer(QGraphicsView):
         self._pixmap_item = self._scene.addPixmap(pixmap)
         self._scene.setSceneRect(QRectF(pixmap.rect()))
 
-    def set_detections(self, detections, highlight_index=-1):
+    def set_detections(self, detections, highlight_index=-1, per_class_bands=None):
         """결함 리스트로 코너 브라켓 + 라벨 오버레이 렌더링.
 
         Args:
-            detections: bbox_abs, class_name, confidence 포함 dict 리스트.
+            detections: bbox_abs, class_name, confidence, class_id 포함 dict 리스트.
             highlight_index: 강조 표시할 결함 인덱스 (더 두꺼운 선).
+            per_class_bands: {class_id: (review_min, review_max)} — 색상 결정용.
         """
         self._clear_overlay()
         self._highlighted_overlay_items = []
@@ -159,7 +175,8 @@ class VisionViewer(QGraphicsView):
             x1, y1, x2, y2 = det["bbox_abs"]
             conf = det["confidence"]
             cls_name = det["class_name"]
-            color = confidence_color(conf)
+            cls_id = det.get("class_id", -1)
+            color = confidence_color(conf, cls_id=cls_id, per_class_bands=per_class_bands)
 
             is_highlighted = (i == highlight_index)
             thickness = 3.0 if is_highlighted else 2.0

@@ -28,12 +28,23 @@ class InspectionWorker(QThread):
     TILE_SIZE = 640
     THUMB_SIZE = 96
 
-    def __init__(self, weight_paths, pass_threshold=0.30, fail_threshold=0.70,
-                 iou_thresh=0.45, device="cpu", parent=None):
+    def __init__(self, weight_paths,
+                 per_class_bands: dict,
+                 iou_thresh: float = 0.45,
+                 device: str = "cpu",
+                 parent=None):
+        """
+        per_class_bands: {class_id: (review_min, review_max)} — 0.0~1.0 비율
+            review_min 미만 → PASS, review_min 이상 → REVIEW, review_max 초과 → FAIL
+        """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
-        self._pass_threshold = pass_threshold
-        self._fail_threshold = fail_threshold
+        self._per_class_bands = per_class_bands
+        # WBF 및 model.predict의 전역 최소 신뢰도 = 가장 낮은 review_min
+        self._global_floor = min(
+            (band[0] for band in per_class_bands.values()),
+            default=0.30,
+        )
         self._iou_thresh = iou_thresh
         self._device = device
         self._image_paths = []
@@ -234,8 +245,7 @@ class InspectionWorker(QThread):
 
     def _ensemble_predict(self, img: np.ndarray) -> list:
         """5개 모델 예측 → WBF 병합 → 결함 리스트 반환.
-        Uses pass_threshold as minimum confidence for detection.
-        Same WBF logic as app_back/inference_worker.py.
+        global_floor (6개 클래스 review_min 최솟값)을 model.predict 기준으로 사용.
         """
         from ensemble_boxes import weighted_boxes_fusion
 
@@ -247,7 +257,7 @@ class InspectionWorker(QThread):
         for model in self._models:
             res = model.predict(
                 img,
-                conf=self._pass_threshold,
+                conf=self._global_floor,
                 iou=self._iou_thresh,
                 verbose=False,
                 device=self._device,
@@ -273,16 +283,17 @@ class InspectionWorker(QThread):
             all_labels,
             weights=None,
             iou_thr=self._iou_thresh,
-            skip_box_thr=self._pass_threshold,
+            skip_box_thr=self._global_floor,
         )
 
         detections = []
         for box_n, score, label in zip(boxes_wbf, scores_wbf, labels_wbf):
             conf_score = float(score)
-            if conf_score < self._pass_threshold:
+            cls_id = int(label)
+            r_min, _ = self._per_class_bands.get(cls_id, (self._global_floor, 1.0))
+            if conf_score < r_min:
                 continue
             x1n, y1n, x2n, y2n = box_n
-            cls_id = int(label)
             detections.append({
                 "bbox_abs": [
                     float(x1n * w), float(y1n * h),
@@ -297,11 +308,11 @@ class InspectionWorker(QThread):
         return detections
 
     def _classify_verdict(self, detections: list) -> str:
-        """검출 결과로부터 타일 판정 결정.
+        """클래스별 REVIEW 밴드 기준으로 타일 판정.
 
-        - FAIL이 하나라도 있으면 → FAIL
-        - FAIL 없고 REVIEW가 있으면 → REVIEW
-        - 모두 PASS 수준이거나 검출 없음 → PASS
+        - 어느 검출이든 해당 클래스의 review_max 초과 → FAIL (최우선)
+        - FAIL 없고 review_min 이상인 검출 존재 → REVIEW
+        - 모두 review_min 미만이거나 검출 없음 → PASS
         """
         if not detections:
             return "PASS"
@@ -310,11 +321,13 @@ class InspectionWorker(QThread):
         has_review = False
 
         for det in detections:
+            cls_id = det["class_id"]
             conf = det["confidence"]
-            if conf >= self._fail_threshold:
+            r_min, r_max = self._per_class_bands.get(cls_id, (self._global_floor, 0.70))
+            if conf > r_max:
                 has_fail = True
-                break  # No need to check further
-            elif conf >= self._pass_threshold:
+                break
+            elif conf >= r_min:
                 has_review = True
 
         if has_fail:
