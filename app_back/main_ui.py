@@ -591,8 +591,12 @@ class MainWindow(QMainWindow):
     def _remove_tile_at(self, index: int):
         """detection이 모두 사라진 타일을 필름스트립/목록에서 제거.
 
-        currentRowChanged가 takeItem() 도중 재귀 발동하지 않도록
-        일시적으로 시그널 연결을 끊고 인덱스를 직접 재계산한다.
+        Qt는 현재 선택된 행을 takeItem()으로 지우면 내부 currentRow를
+        자동으로 재조정하는데, 그 값이 이후 우리가 호출하는 setCurrentRow()의
+        인자와 우연히 같아지면 "값이 안 바뀌었다"고 보고 currentRowChanged
+        시그널을 발동시키지 않는다. 화면 갱신(_on_filmstrip_selection)이
+        오직 이 시그널에만 걸려 있으면 갱신이 누락될 수 있으므로, 시그널
+        발동 여부와 무관하게 화면 갱신 함수를 항상 직접 호출한다.
         """
         if not (0 <= index < len(self._tiles)):
             return
@@ -601,19 +605,19 @@ class MainWindow(QMainWindow):
         try:
             del self._tiles[index]
             self._filmstrip.takeItem(index)
+            new_index = min(index, len(self._tiles) - 1) if self._tiles else -1
+            if new_index >= 0:
+                self._filmstrip.setCurrentRow(new_index)
         finally:
             self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
 
-        if not self._tiles:
+        if new_index == -1:
             self._current_index = -1
             self._local_view.clear_all()
             self._global_scene.clear()
             self._update_status()
-            return
-
-        new_index = min(index, len(self._tiles) - 1)
-        self._current_index = new_index
-        self._filmstrip.setCurrentRow(new_index)
+        else:
+            self._on_filmstrip_selection(new_index)
 
     def _adjust_brush_size(self, delta: int):
         """브러쉬 크기를 delta만큼 조절."""
