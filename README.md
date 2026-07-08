@@ -1,4 +1,4 @@
-# YOLOv8 Small 5-Fold 앙상블 기반 PCB 결함 탐지 시스템
+# YOLO26 Small 5-Fold 앙상블 기반 PCB 결함 탐지 시스템
 
 ## app_front — 실시간 자동 검사 모니터링
 <img width="800" height="381" alt="app_front-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/c9a249a4-1c55-4f42-b29d-a08e6bccb150" />
