@@ -1,31 +1,108 @@
-# Source Code Directory (`src`)
+# src — 머신러닝 파이프라인 핵심 모듈
 
-본 `src` 폴더는 데이터 전처리부터 모델 학습, 평가 및 튜닝에 이르기까지 **프로젝트의 핵심 머신러닝 파이프라인 로직**이 구현된 Python 모듈들을 보관하는 곳입니다.
+데이터 전처리부터 모델 학습, 하이퍼파라미터 튜닝까지  
+프로젝트의 모든 ML 로직이 구현된 Python 모듈 모음입니다.
 
-## 주요 모듈 구성
+---
 
-* **`preprocess.py`**
-  * 원본 데이터셋의 전처리 로직이 포함되어 있습니다.
-  * 데이터 정제 및 학습에 필요한 디렉토리 구조 생성 등 모델 학습 전 필수 데이터 구성 작업을 처리합니다.
-* **`merge_images.py`**
-  * `dataset/PCBData` 내의 1500장 이미지 쌍(정상/결함)을 활용하여 16가지 크기 조합(1x1~4x4)으로 무작위 합성 이미지를 생성합니다.
-  * 단일 서브 이미지마다 6.25% 확률로 결함 이미지를 적용하여 중복 없이 모든 원본 이미지를 활용합니다.
-* **`augment_pcb.py`**
-  * 흑백(이진화) 기판 도면이나 마스크 이미지를 OpenCV를 활용하여 실제 카메라로 촬영한 PCB 사진처럼 변환하는 데이터 증강 모듈입니다.
-  * 랜덤 배경/회로 색상 매핑, 질감 및 노이즈 추가, 안티앨리어싱, 엠보싱, 카메라 열화 효과 등을 시뮬레이션합니다.
-* **`jigsaw_solver.py`**
-  * 분할된 PCB 이미지 조각들을 정밀 매칭하고 재조립하여 원본 크기의 이미지로 복원하는 Jigsaw Solver 로직을 수행합니다.
-* **`train.py`**
-  * 단일 YOLOv8 모델 학습을 담당하는 모듈입니다.
-  * 데이터 로딩, 모델 초기화, 학습 파라미터 적용 및 결과 저장 로직을 포함합니다.
-* **`train_kfold.py`**
-  * 모델의 일반화 성능을 높이기 위한 K-Fold Cross Validation (기본 5-Fold) 방식의 학습을 수행합니다.
-  * 각 폴드별 학습을 거쳐 앙상블 추론의 기반이 되는 여러 개의 가중치 파일을 생성합니다.
-* **`tune.py`**
-  * 모델 성능 향상을 위해 Ray Tune 등을 활용하여 최적의 하이퍼파라미터를 탐색하는 기능을 수행합니다.
-* **`utils.py`**
-  * 여러 스크립트에서 공통으로 사용되는 유틸리티 함수(로깅, 경로 처리, 결과 포맷팅 등)가 정의되어 있습니다.
+## 파일 구성
 
-## 참고 사항
+| 파일 | 역할 |
+|------|------|
+| `preprocess.py` | DeepPCB raw 데이터 → YOLO 포맷 변환 + 그룹 단위 train/val/test 분할 |
+| `merge_images.py` | 1500장 서브 이미지를 1×1~4×4 조합으로 합성 (데이터 확장) |
+| `train.py` | 단일 yolo26s 모델 학습 |
+| `train_kfold.py` | 5-Fold K-Fold 앙상블 학습 → `weights/best_fold_1~5.pt` 생성 |
+| `tune.py` | Ray Tune 기반 하이퍼파라미터 탐색 |
+| `train_tune.py` | 튜닝 결과 적용 단일 모델 정밀 학습 |
+| `utils.py` | config.yaml 로드 + 환경(local/colab/server)별 경로 분기 |
+| `__init__.py` | 패키지 초기화 |
 
-이 폴더 내의 스크립트들을 직접 실행하기보다는, 가급적 **프로젝트 루트의 `scripts` 폴더에 제공되는 실행 스크립트(`.bat` 또는 `.sh`)**를 사용하여 파이프라인을 동작시키는 것을 권장합니다.
+---
+
+## 전처리 파이프라인 (`preprocess.py`)
+
+```
+DeepPCB 원본
+(trainval.txt + test.txt)
+        │
+        ▼
+collect_pairs()
+  └─ (image_path, label_path, group_id) 수집
+     group_id = 파일명 앞 5자리 (예: "00041")
+        │
+        ▼
+split_dataset()  — 그룹 단위 greedy 분할
+  ├─ 그룹별 샘플 수 집계
+  ├─ test 그룹 먼저 배정 (test.txt 기준)
+  ├─ val  그룹 greedy 배정 (목표 비율까지)
+  └─ 나머지 → train
+     │
+     ▼ 검증
+  assert not (train_groups & val_groups)
+  assert not (train_groups & test_groups)
+        │
+        ▼
+save_yolo_format()
+  ├─ 이미지 → preprocessed_data/{train,val,test}/images/
+  └─ 라벨  → preprocessed_data/{train,val,test}/labels/
+             (DeepPCB "x1 y1 x2 y2 type" → YOLO "cls cx cy w h" 정규화)
+```
+
+---
+
+## KFold 그룹 격리 검증 결과
+
+**결론: 그룹 데이터 누수 없음 — 코드 수정 불필요.**
+
+두 겹의 보호 레이어로 test 그룹이 학습에 절대 유입되지 않습니다:
+
+### 레이어 1 — 파일시스템 격리
+
+`preprocess.py`의 `split_dataset()`이 그룹을 `train/val/test` 폴더에 완전 격리하며,  
+`assert not (tg & vg) and not (tg & teg)` 로 교차 검증합니다.  
+`train_kfold.py`는 `for split in ["train", "val"]:` 로 `test/` 폴더를 명시적으로 제외합니다.
+
+### 레이어 2 — KFold 분할 격리
+
+`StratifiedGroupKFold(groups=[stem[:5]])` 를 사용하여  
+동일 그룹 ID가 같은 fold의 train/val 양쪽에 동시 등장하지 않도록 보장합니다.
+
+---
+
+## 학습 파이프라인
+
+```
+[단일 학습]        scripts/run_train.bat → src/train.py
+                       └─► weights/best.pt
+
+[5-Fold 앙상블]    scripts/run_kfold.bat → src/train_kfold.py
+                       ├─► weights/best_fold_1.pt
+                       ├─► weights/best_fold_2.pt
+                       ├─► weights/best_fold_3.pt
+                       ├─► weights/best_fold_4.pt
+                       └─► weights/best_fold_5.pt  ← app_front/app_back 사용
+
+[하이퍼파라미터]   scripts/run_tune.bat  → src/tune.py (Ray Tune)
+                       └─► 최적 파라미터 → config.yaml 반영
+
+[튜닝 후 학습]     scripts/run_train_tune.bat → src/train_tune.py
+```
+
+---
+
+## utils.py — 환경 분기
+
+`config.yaml`의 `env` 키 값에 따라 경로를 자동 분기합니다.
+
+| env 값 | 대상 환경 | raw_data 경로 |
+|--------|-----------|--------------|
+| `local` | 개발 PC | `config.yaml` 내 `paths.local.raw_data` |
+| `colab` | Google Colab | `/content/drive/MyDrive/...` |
+| `server` | GPU 서버 | `/shared/...` |
+
+```python
+cfg = load_config("config.yaml")
+paths = get_paths(cfg)
+# paths["raw_data"], paths["processed"], paths["weights"], paths["runs"]
+```
