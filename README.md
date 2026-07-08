@@ -7,7 +7,7 @@
 <img width="800" height="383" alt="app_back-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/f7c7a50c-3b85-420b-a83f-a11adde81c47" />
 
 ## 소개
-YOLOv8 Small(yolo26s) 5-Fold 앙상블 모델로 PCB(인쇄회로기판) 표면 결함을 고정밀 탐지하는 통합 시스템입니다.  
+YOLO26 Small(yolo26s) 5-Fold 앙상블 모델로 PCB(인쇄회로기판) 표면 결함을 고정밀 탐지하는 통합 시스템입니다.  
 `app_front`가 PCB 이미지를 640×640 타일로 분할하여 자동 검사(PASS/FAIL/REVIEW)하고, 결과를 SQLite DB에 실시간 저장합니다.  
 `app_back`은 DB에서 REVIEW 타일을 수신하여 작업자가 키보드 단축키로 빠르게 최종 판정을 내릴 수 있도록 합니다.
 
@@ -87,8 +87,8 @@ ati3_project/
 │   └── README.md
 │
 ├── weights/                 # 베이스 모델 및 앙상블 최종 가중치
-│   ├── yolo26n.pt           # YOLOv8 Nano 베이스 (~5.4 MB)
-│   ├── yolo26s.pt           # YOLOv8 Small 베이스 (~19.5 MB, 실제 사용)
+│   ├── yolo26n.pt           # YOLO26 Nano 베이스 (~5.4 MB)
+│   ├── yolo26s.pt           # YOLO26 Small 베이스 (~19.5 MB, 실제 사용)
 │   ├── best_fold_1~5.pt     # 5-Fold K-Fold 최적 가중치 (~6 MB × 5)
 │   └── README.md
 │
