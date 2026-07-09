@@ -2,13 +2,14 @@
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene
-from PyQt5.QtCore import Qt, QRectF
+from PyQt5.QtCore import Qt, QRectF, QTimer
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor,
     QImage, QPixmap,
 )
 
-SCAN_BOX_COLOR = QColor(255, 40, 40, 230)  # 빨간색 — 현재 검사 위치
+SCAN_BOX_COLOR = QColor(255, 40, 40, 230)  # 빨간색 테두리 — 현재 검사 위치
+SCAN_BOX_FILL_COLOR = QColor(255, 40, 40, 64)  # 반투명 빨간색 채우기 (기존 썸네일 오버레이 alpha=64 관례와 동일)
 
 
 class GlobalView(QGraphicsView):
@@ -55,6 +56,8 @@ class GlobalView(QGraphicsView):
         self._pixmap_item.setZValue(0)
         self._scene.setSceneRect(QRectF(0, 0, w, h))
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+        # 레이아웃이 아직 안정되지 않은 시점에 호출됐을 가능성에 대비한 방어적 재-fit
+        QTimer.singleShot(0, lambda: self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio))
 
     def set_scan_box(self, x: float, y: float, size: float):
         """현재 검사 중인 타일 위치를 실제 픽셀 좌표 기준으로 표시.
@@ -75,7 +78,7 @@ class GlobalView(QGraphicsView):
         if self._scan_box_item is not None:
             self._scan_box_item.setRect(rect)
         else:
-            self._scan_box_item = self._scene.addRect(rect, pen, QBrush(Qt.NoBrush))
+            self._scan_box_item = self._scene.addRect(rect, pen, QBrush(SCAN_BOX_FILL_COLOR))
             self._scan_box_item.setZValue(10)
 
     def clear_scan_box(self):

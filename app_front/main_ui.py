@@ -871,6 +871,16 @@ class MainWindow(QMainWindow):
             if colored_img is not None:
                 self._current_colored_image = colored_img
 
+        # 컬러 짝(_colored.png)이 없으면 GlobalView를 이전 이미지로 남겨두지 않고
+        # 검사 중인 원본 이진화 이미지 자체를 3채널로 변환해 폴백으로 표시한다.
+        if self._current_colored_image is None and self._current_folder:
+            binary_path = Path(self._current_folder) / filename
+            binary_img = cv2.imread(str(binary_path), cv2.IMREAD_UNCHANGED)
+            if binary_img is not None:
+                if binary_img.ndim == 2:
+                    binary_img = cv2.cvtColor(binary_img, cv2.COLOR_GRAY2BGR)
+                self._current_colored_image = binary_img
+
         # GlobalView에 컬러 이미지 설정
         if self._current_colored_image is not None:
             self._global_view.set_image(self._current_colored_image)

@@ -2,7 +2,7 @@
 
 `app_front`가 SQLite DB에 기록한 REVIEW 타일을 3초마다 폴링하여 수신하고,  
 작업자가 키보드 단축키로 각 타일의 최종 판정(Pass/Fail 클래스)을 내립니다.  
-5개 YOLO 모델(WBF 앙상블)로 재추론하여 결함 위치를 정밀 표시합니다.
+DB의 `model_paths`(app_front Options에서 선택한 1개 이상의 .pt, 개수 상한 없음)와 동일한 모델 구성으로 재추론하여 결함 위치를 정밀 표시합니다.
 
 ---
 
@@ -31,7 +31,7 @@ app_front\run_app.bat
 bash app_front/run_app.sh
 ```
 
-> app_back은 앱 시작 즉시 5개 YOLO 모델을 로딩합니다 (약 30초~1분).  
+> app_back은 앱 시작 즉시 DB의 `model_paths`에 설정된 모델(1개 이상)을 로딩합니다 (모델 수에 따라 소요 시간 변동).  
 > 로딩 완료 후 DB 폴링이 자동으로 시작됩니다.
 
 ---
@@ -57,7 +57,7 @@ bash app_front/run_app.sh
 
 ```
 앱 시작
-  └─► InferenceWorker 시작 (5개 YOLO 모델 비동기 로딩)
+  └─► InferenceWorker 시작 (DB의 model_paths 기준 모델 비동기 로딩)
         └─► models_loaded 시그널 → QTimer(3000ms) 시작
 
 QTimer 3초마다 _poll_db() 호출
@@ -67,18 +67,23 @@ QTimer 3초마다 _poll_db() 호출
   │     │     └─► _on_db_reset(): filmstrip 전체 초기화,
   │     │                         _last_shown_id = 0
   │     │
-  │     └─ 설정 변경 감지?
-  │           └─► per_class_bands 갱신
-  │               worker.min_conf = min(review_mins)
-  │               worker.iou_thresh = new_iou
+  │     ├─ REVIEW 밴드 변경 감지?
+  │     │     └─► per_class_bands 갱신, worker.min_conf = min(review_mins)
+  │     │
+  │     └─ model_paths 변경 감지?
+  │           └─► _reload_models(): 폴링 타이머 정지 → 상태 메시지 표시
+  │                 → worker.set_weight_paths_and_reload() 동기 재로딩 → 타이머 재개
+  │                 (재로딩 실패 시 경고만 띄우고 기존 모델 유지, 응답 없음은 이 구간뿐)
   │
   └─► fetch_review_tiles(after_id=_last_shown_id) → 새 타일 조회
-        └─► 각 타일에 대해 _process_tile(tile_row):
+        └─► 앞쪽 MAX_TILES_PER_POLL_TICK(기본 10)건만 이번 틱에 처리, 나머지는 다음 틱으로 이월
+              (REVIEW 폭주 시 한 번에 몰아서 동기 추론하면 UI가 멈추는 것을 방지)
+        └─► 처리 대상 각 타일에 대해 _process_tile(tile_row):
               ├─ PNG BLOB → cv2.imdecode()
               ├─ worker.run_single_image_sync(img_bgr)
-              │     └─ 5 YOLO 모델 추론 → WBF → detections, crops
+              │     └─ 설정된 모델 전체로 추론 → WBF → detections, crops
               ├─ TileEntry 생성 (tile_id, img_bgr, detections, crops)
-              └─ FilmStrip 썸네일 추가
+              └─ FilmStrip 썸네일 추가 (개수 상한 없음 — 미판정 대기열이라 의도적으로 무제한 누적)
 ```
 
 ---
@@ -130,7 +135,7 @@ FilmStrip 1건에 대응하는 데이터 클래스.
 | 속성 | 타입 | 설명 |
 |------|------|------|
 | `tile_id` | int | DB tiles.id (user_verdict 저장 키) |
-| `img_bgr` | ndarray | 640×640 타일 BGR 이미지 |
+| `img_bgr` | ndarray | 타일 BGR 이미지 (크기는 app_front Options의 타일 크기 설정을 따름, 기본 640×640) |
 | `detections` | list[dict] | `{class_id, class_name, confidence, bbox_abs}` 목록 |
 | `crops` | list[ndarray] | 결함별 확대 크롭 이미지 |
 | `verdict` | str | `"pending"` / `"pass"` / `"1"~"6"` |
@@ -146,10 +151,10 @@ FilmStrip 1건에 대응하는 데이터 클래스.
 | 좌클릭 드래그 | 흰색 브러쉬 마스킹 |
 | `Shift` | 선택 오버레이 외 숨김 |
 
-결함 박스 색상은 `confidence_color(conf, bands)` 함수로 per-class 판단:
+결함 박스 색상은 `confidence_color(conf, class_name, per_class_bands)` 함수로 per-class 판단:
 - **빨강**: conf > class review_max (FAIL 수준)
 - **노랑**: conf ≥ class review_min (REVIEW 수준)
-- **회색**: conf < class review_min (PASS 수준)
+- **회색**: conf < class review_min (PASS 수준) — app_back은 REVIEW 판정 여부만 중요하므로 app_front(초록)와 달리 회색을 그대로 유지한다.
 
 ---
 

@@ -13,6 +13,10 @@ from PyQt5.QtCore import QThread, pyqtSignal
 # 서로 다른 모델의 박스를 같은 객체로 묶는 WBF 클러스터링 자체에는 필요해 내부 상수로 유지)
 _WBF_IOU_THR = 0.45
 
+# LocalView 초록(PASS 수준) 박스가 표시될 수 있는 confidence 하한 — 클래스별 review_min과
+# 무관하게 고정. 이보다 낮은 confidence는 모델이 애초에 반환하지 않는다(model.predict의 conf 하한).
+_GREEN_FLOOR = 0.01
+
 
 class InspectionWorker(QThread):
     """5개 K-Fold 모델의 WBF 앙상블로 타일 단위 자동 검사 수행.
@@ -47,11 +51,9 @@ class InspectionWorker(QThread):
         # Options 값은 생성 시점에 확정되며 이 워커의 수명 동안 바뀌지 않는다 —
         # 값이 바뀌려면 반드시 MainWindow가 새 워커로 전체 재시작한다.
         self.per_class_bands = per_class_bands
-        # WBF 및 model.predict의 전역 최소 신뢰도 = 가장 낮은 review_min
-        self._global_floor = min(
-            (band[0] for band in per_class_bands.values()),
-            default=0.30,
-        )
+        # WBF 및 model.predict의 전역 최소 신뢰도 = _GREEN_FLOOR와 활성 클래스 review_min 중 최솟값
+        # (review_min을 _GREEN_FLOOR보다 낮게 설정해도 REVIEW/FAIL 판정에 필요한 검출이 누락되지 않도록 안전)
+        self._global_floor = min([_GREEN_FLOOR] + [band[0] for band in per_class_bands.values()])
         self.tile_size = tile_size
         self.overlap_pct = overlap_pct
         self._device = device
@@ -155,9 +157,11 @@ class InspectionWorker(QThread):
                 # Extract tile
                 tile = self._extract_tile(img, row, col)
 
-                # Ensure BGR for model
-                if len(tile.shape) == 2:
-                    tile_bgr = cv2.cvtColor(tile, cv2.COLOR_GRAY2BGR)
+                # Ensure BGR for model — cv2.imread(IMREAD_UNCHANGED)는 환경/버전에 따라
+                # 흑백 PNG를 (H,W)가 아니라 (H,W,1)로 디코딩할 수 있어 둘 다 확인한다.
+                if tile.ndim == 2 or tile.shape[2] == 1:
+                    gray = tile if tile.ndim == 2 else tile[:, :, 0]
+                    tile_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
                 else:
                     tile_bgr = tile
 
