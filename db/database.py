@@ -1,6 +1,5 @@
 # SQLite 직접 접근 헬퍼 — 타일 이미지, 판정 결과, 앱 설정을 관리
 import json
-import os
 import sqlite3
 import uuid
 from pathlib import Path
@@ -9,37 +8,26 @@ import cv2
 import numpy as np
 
 DB_PATH = Path(__file__).resolve().parent / "inspection.db"
-DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parent / "default_settings.json"
 
-# default_settings.json을 읽지 못할 때의 최후 폴백(파일 삭제/손상 대비)
-_FALLBACK_DEFAULT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+# app_front가 한 번도 실행되지 않아 DB settings가 완전히 비어있는 극단적 상황(예: app_back이
+# 먼저 켜진 경우)을 위한 최소 안전망. 진짜 설정 가능한 기본값은 app_front/default_settings.json
+# (app_front/defaults_store.py가 소유)이며, db 계층은 그 파일의 존재조차 알지 못한다.
+_BOOTSTRAP_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+_BOOTSTRAP_MODEL_PATHS = [f"weights/best_fold_{i}.pt" for i in range(1, 6)]
 
 
-def _load_default_settings() -> dict[str, str]:
-    """default_settings.json(공장 기본값)을 읽어 flat key-value 설정 dict로 변환.
-
-    파일이 없거나 파싱에 실패하면 내장 폴백 값(현재까지의 6개 클래스, 30/70)을 반환한다.
-    """
-    try:
-        with open(DEFAULT_SETTINGS_PATH, encoding="utf-8") as f:
-            raw = json.load(f)
-        classes = raw["defect_classes"]
-    except Exception:
-        classes = [
-            {"name": cls, "review_min": 30, "review_max": 70}
-            for cls in _FALLBACK_DEFAULT_CLASSES
-        ]
-        raw = {"tile_size": 640, "overlap_pct": 0, "alert_sound": True}
-
+def _bootstrap_settings() -> dict[str, str]:
+    """settings 테이블이 완전히 비어있을 때만 쓰이는 최소 하드코딩 안전망."""
     settings: dict[str, str] = {
-        "defect_classes": json.dumps([c["name"] for c in classes]),
-        "tile_size": str(raw.get("tile_size", 640)),
-        "overlap_pct": str(raw.get("overlap_pct", 0)),
-        "alert_sound": "true" if raw.get("alert_sound", True) else "false",
+        "defect_classes": json.dumps(_BOOTSTRAP_CLASSES),
+        "tile_size": "640",
+        "overlap_pct": "0",
+        "alert_sound": "true",
+        "model_paths": json.dumps(_BOOTSTRAP_MODEL_PATHS),
     }
-    for c in classes:
-        settings[f"review_min_{c['name']}"] = str(c["review_min"])
-        settings[f"review_max_{c['name']}"] = str(c["review_max"])
+    for cls in _BOOTSTRAP_CLASSES:
+        settings[f"review_min_{cls}"] = "30"
+        settings[f"review_max_{cls}"] = "70"
     return settings
 
 
@@ -108,7 +96,7 @@ def init_db() -> None:
         """)
 
         # 기본값 삽입 (이미 있는 키는 건드리지 않음 — 안전망 용도)
-        defaults = _load_default_settings()
+        defaults = _bootstrap_settings()
         defaults["db_session_id"] = str(uuid.uuid4())
 
         for key, value in defaults.items():
@@ -239,25 +227,3 @@ def update_settings(settings: dict) -> None:
                 " ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
                 (key, str(value)),
             )
-
-
-def force_reset_settings_to_defaults() -> None:
-    """Options 설정을 default_settings.json 값으로 강제 덮어쓴다 (app_front 구동 시 전용).
-
-    tiles 테이블과 db_session_id는 건드리지 않는다 — 검사 데이터 초기화와는 별개다.
-    """
-    update_settings(_load_default_settings())
-
-
-def load_default_settings_raw() -> dict:
-    """default_settings.json 원본 구조를 그대로 반환 ("기본값 수정" UI 편집용)."""
-    with open(DEFAULT_SETTINGS_PATH, encoding="utf-8") as f:
-        return json.load(f)
-
-
-def save_default_settings_raw(data: dict) -> None:
-    """default_settings.json을 원자적으로 덮어쓴다 (임시 파일 작성 후 교체 — 크래시로 인한 파일 손상 방지)."""
-    tmp_path = DEFAULT_SETTINGS_PATH.with_suffix(".json.tmp")
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-    os.replace(tmp_path, DEFAULT_SETTINGS_PATH)
