@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QDialogButtonBox, QSpinBox, QCheckBox, QGroupBox,
     QGridLayout, QFrame, QSizePolicy, QPushButton,
 )
-from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer, QEvent
+from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, pyqtSignal, QTimer, QEvent
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence,
     QFont,
@@ -25,6 +25,8 @@ from vision_viewer import VisionViewer
 from global_view import GlobalView
 from inspection_worker import InspectionWorker
 from class_band_table import ClassBandTableWidget
+from model_paths_widget import ModelPathsWidget
+import defaults_store
 
 # ── 프로젝트 루트 ──────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -42,9 +44,6 @@ try:
         get_settings as _db_get_settings,
         update_settings as _db_update_settings,
         get_db_stats as _db_get_stats,
-        force_reset_settings_to_defaults as _db_force_reset_settings,
-        load_default_settings_raw as _db_load_defaults_raw,
-        save_default_settings_raw as _db_save_defaults_raw,
     )
     _DB_ENABLED = True
 except Exception as _e:
@@ -54,7 +53,7 @@ except Exception as _e:
 # ── 상수 ───────────────────────────────────
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
-FILMSTRIP_MAX_ITEMS = 200  # 24시간 상시 구동 대비 최근 N개만 유지
+FILMSTRIP_MAX_ITEMS = 30  # 24시간 상시 구동 대비 최근 N개만 유지 (REVIEW 폭주 시 app_back 부하 완화)
 
 VERDICT_COLORS = {
     "PASS":   QColor(0, 200, 0),
@@ -145,6 +144,17 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(form_layout)
 
+        # ── 검사 모델 선택 ──────────────────────────────────────────
+        model_label = QLabel("검사 모델 (.pt 1~5개, 앙상블 추론에 사용)")
+        model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
+        layout.addWidget(model_label)
+
+        model_paths = json.loads(current_settings.get("model_paths", "[]"))
+        self._model_widget = ModelPathsWidget(
+            model_paths, get_active_class_names=lambda: list(self._class_table.get_bands().keys()),
+        )
+        layout.addWidget(self._model_widget)
+
         # ── 기본값 수정 진입점 ─────────────────────────────────────
         defaults_btn = QPushButton("기본값 수정...")
         defaults_btn.setToolTip("프로그램을 다시 시작했을 때 적용되는 공장 기본값을 수정합니다.")
@@ -181,6 +191,7 @@ class SettingsDialog(QDialog):
         s["tile_size"] = self.tile_size_spin.value()
         s["overlap_pct"] = self.overlap_spin.value()
         s["alert_sound"] = self.alert_check.isChecked()
+        s["model_paths"] = json.dumps(self._model_widget.get_model_paths())
         return s
 
 
@@ -198,9 +209,7 @@ class DefaultsEditDialog(QDialog):
         self.setMinimumWidth(480)
         self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
 
-        self._raw = _db_load_defaults_raw() if _DB_ENABLED else {
-            "defect_classes": [], "tile_size": 640, "overlap_pct": 0, "alert_sound": True,
-        }
+        self._raw = defaults_store.load_defaults_raw()
 
         layout = QVBoxLayout(self)
 
@@ -236,6 +245,17 @@ class DefaultsEditDialog(QDialog):
 
         layout.addLayout(form_layout)
 
+        # ── 검사 모델 선택 ──────────────────────────────────────────
+        model_label = QLabel("공장 기본 검사 모델 (.pt 1~5개)")
+        model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
+        layout.addWidget(model_label)
+
+        self._model_widget = ModelPathsWidget(
+            self._raw.get("model_paths", []),
+            get_active_class_names=lambda: list(self._class_table.get_bands().keys()),
+        )
+        layout.addWidget(self._model_widget)
+
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
@@ -269,14 +289,93 @@ class DefaultsEditDialog(QDialog):
             "tile_size": self.tile_size_spin.value(),
             "overlap_pct": self.overlap_spin.value(),
             "alert_sound": self.alert_check.isChecked(),
+            "model_paths": self._model_widget.get_model_paths(),
         }
-        if _DB_ENABLED:
-            try:
-                _db_save_defaults_raw(new_raw)
-            except Exception as e:
-                QMessageBox.warning(self, "오류", f"기본값 저장 실패: {e}")
-                return
+        try:
+            defaults_store.save_defaults_raw(new_raw)
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"기본값 저장 실패: {e}")
+            return
         self.accept()
+
+
+# ── DatabaseDialog ────────────────────────────────────────────
+
+class DatabaseDialog(QDialog):
+    """DB 통계 조회 + 초기화를 하나로 묶은 다이얼로그.
+
+    열리는 즉시 최신 통계를 계산해 보여주고, 하단의 "DB 초기화" 버튼으로
+    바로 초기화할 수 있다 — 초기화 후 다이얼로그를 닫았다 열 필요 없이
+    같은 창 안에서 숫자가 즉시 0으로 갱신된다.
+    """
+
+    reset_done = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Database")
+        self.setMinimumWidth(360)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        layout = QVBoxLayout(self)
+
+        self._stats_label = QLabel()
+        self._stats_label.setStyleSheet("color: #ccc;")
+        self._stats_label.setWordWrap(True)
+        layout.addWidget(self._stats_label)
+
+        reset_btn = QPushButton("DB 초기화...")
+        reset_btn.clicked.connect(self._on_reset_clicked)
+        layout.addWidget(reset_btn)
+
+        close_box = QDialogButtonBox(QDialogButtonBox.Close)
+        close_box.rejected.connect(self.reject)
+        layout.addWidget(close_box)
+
+        self.setStyleSheet(_DIALOG_STYLE)
+        self._refresh_stats()
+
+    def _refresh_stats(self):
+        if not _DB_ENABLED:
+            self._stats_label.setText("DB 연동이 비활성화되어 있습니다.")
+            return
+        try:
+            stats = _db_get_stats()
+        except Exception as e:
+            self._stats_label.setText(f"DB 통계 조회 실패: {e}")
+            return
+        total = stats.get("_total", 0)
+        db_bytes = stats.get("_db_bytes", 0)
+        if db_bytes >= 1024 ** 2:
+            size_str = f"{db_bytes / 1024 ** 2:.1f} MB"
+        elif db_bytes >= 1024:
+            size_str = f"{db_bytes / 1024:.1f} KB"
+        else:
+            size_str = f"{db_bytes} B"
+        self._stats_label.setText(
+            f"총 타일 수: {total}\n"
+            f"  PASS : {stats.get('PASS', 0)}\n"
+            f"  FAIL : {stats.get('FAIL', 0)}\n"
+            f"  REVIEW: {stats.get('REVIEW', 0)}\n\n"
+            f"DB 파일 크기: {size_str}"
+        )
+
+    def _on_reset_clicked(self):
+        reply = QMessageBox.question(
+            self, "DB 초기화",
+            "모든 검사 데이터를 삭제하시겠습니까?\n진행 중인 검사는 중단되지 않습니다.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes or not _DB_ENABLED:
+            return
+        try:
+            _db_clear()
+        except Exception as e:
+            QMessageBox.warning(self, "오류", f"DB 초기화 실패: {e}")
+            return
+        self._refresh_stats()
+        self.reset_done.emit()
 
 
 # ── MainWindow ────────────────────────────────────────────────
@@ -304,7 +403,9 @@ class MainWindow(QMainWindow):
         self._paused: bool = False
         self._current_folder: str | None = None
         self._current_image_index: int = -1
-        self._colored_images: dict[int, np.ndarray] = {}
+        # 항상 "현재 이미지" 1장만 화면에 쓰이므로 딕셔너리로 계속 누적할 필요가 없다
+        # (매 이미지 시작 시 덮어씀 — 6400x6400 이미지 1장이 ~122MB라 무제한 누적 시 메모리 누수였음)
+        self._current_colored_image: np.ndarray | None = None
         self._inspection_start_time: float = 0.0
         self._tile_count: int = 0
 
@@ -316,14 +417,13 @@ class MainWindow(QMainWindow):
             "fail": 0,
             "review": 0,
         }
-        self._inference_times: list[float] = []
 
         # Options 설정 — app_front 구동 시 항상 파일 기본값으로 DB를 강제 초기화한 뒤 로드
         # (세션 중 Option 변경은 DB에만 반영되고 파일 기본값은 바뀌지 않는다)
         if _DB_ENABLED:
             try:
                 _db_init()
-                _db_force_reset_settings()
+                defaults_store.force_reset_settings_to_defaults()
             except Exception as e:
                 print(f"[DB] 기본값 강제 초기화 실패: {e}")
         self._app_settings = self._load_settings()
@@ -338,6 +438,7 @@ class MainWindow(QMainWindow):
     # ── 설정 로드/저장 (DB 기반) ──────────────────────────────
 
     _FALLBACK_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+    _FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}.pt" for i in range(1, 6)]
 
     def _load_settings(self) -> dict:
         """DB settings 테이블에서 설정을 읽어 반환. DB가 없으면 기본값 사용."""
@@ -348,6 +449,7 @@ class MainWindow(QMainWindow):
         defaults["tile_size"] = 640
         defaults["overlap_pct"] = 0
         defaults["alert_sound"] = True
+        defaults["model_paths"] = json.dumps(self._FALLBACK_MODEL_PATHS)
 
         if not _DB_ENABLED:
             return defaults
@@ -363,6 +465,8 @@ class MainWindow(QMainWindow):
             result["overlap_pct"] = int(raw.get("overlap_pct", 0))
             alert_val = raw.get("alert_sound", "true")
             result["alert_sound"] = alert_val if isinstance(alert_val, bool) else alert_val.lower() == "true"
+            model_paths = json.loads(raw.get("model_paths", "[]")) or self._FALLBACK_MODEL_PATHS
+            result["model_paths"] = json.dumps(model_paths)
             return result
         except Exception as e:
             print(f"[DB] 설정 로드 실패, 기본값 사용: {e}")
@@ -565,90 +669,64 @@ class MainWindow(QMainWindow):
         menu_bar.setStyleSheet(
             "QMenuBar { background: #1a1a1a; color: #ccc; }"
             "QMenuBar::item:selected { background: #333; }"
-            "QMenu { background: #2a2a2a; color: #ccc; }"
-            "QMenu::item:selected { background: #3a7bd5; }"
         )
 
-        # File 메뉴
-        file_menu = menu_bar.addMenu("File")
-        open_action = QAction("Open Folder...", self)
+        # File — 클릭 즉시 폴더 열기 (드롭다운 없음)
+        open_action = QAction("File", self)
         open_action.setShortcut("Ctrl+O")
         open_action.triggered.connect(self._select_folder_and_start)
-        file_menu.addAction(open_action)
+        menu_bar.addAction(open_action)
 
-        # Database 메뉴 (File과 Option 사이)
-        db_menu = menu_bar.addMenu("Database")
-        stats_action = QAction("DB 통계...", self)
-        stats_action.triggered.connect(self._show_db_stats)
-        db_menu.addAction(stats_action)
-        reset_action = QAction("DB 초기화...", self)
-        reset_action.triggered.connect(self._reset_db)
-        db_menu.addAction(reset_action)
+        # Database — 클릭 즉시 통계+초기화 다이얼로그
+        db_action = QAction("Database", self)
+        db_action.triggered.connect(self._open_database_dialog)
+        menu_bar.addAction(db_action)
 
-        # Option 메뉴
-        option_menu = menu_bar.addMenu("Option")
-        settings_action = QAction("Settings...", self)
+        # Option — 클릭 즉시 설정 다이얼로그
+        settings_action = QAction("Option", self)
         settings_action.triggered.connect(self._open_settings_dialog)
-        option_menu.addAction(settings_action)
+        menu_bar.addAction(settings_action)
 
     def _open_settings_dialog(self):
-        dialog = SettingsDialog(self._app_settings, self)
-        if dialog.exec_() == QDialog.Accepted:
-            new_settings = dialog.get_settings()
-            self._app_settings = new_settings
-            self._save_settings(self._app_settings)
-            # 진행 중인 Worker는 중단하지 않음. 다음 폴더 오픈 시 새 설정 적용.
-
-    def _show_db_stats(self):
-        """DB 통계 다이얼로그 표시."""
-        if not _DB_ENABLED:
-            QMessageBox.warning(self, "DB 비활성화", "DB 연동이 비활성화되어 있습니다.")
-            return
-        try:
-            stats = _db_get_stats()
-            total = stats.get("_total", 0)
-            db_bytes = stats.get("_db_bytes", 0)
-            if db_bytes >= 1024 ** 2:
-                size_str = f"{db_bytes / 1024 ** 2:.1f} MB"
-            elif db_bytes >= 1024:
-                size_str = f"{db_bytes / 1024:.1f} KB"
-            else:
-                size_str = f"{db_bytes} B"
-            msg = (
-                f"총 타일 수: {total}\n"
-                f"  PASS : {stats.get('PASS', 0)}\n"
-                f"  FAIL : {stats.get('FAIL', 0)}\n"
-                f"  REVIEW: {stats.get('REVIEW', 0)}\n\n"
-                f"DB 파일 크기: {size_str}"
-            )
-            QMessageBox.information(self, "DB 통계", msg)
-        except Exception as e:
-            QMessageBox.warning(self, "오류", f"DB 통계 조회 실패: {e}")
-
-    def _reset_db(self):
-        """DB 초기화 (tiles 삭제). 진행 중인 Worker는 중단하지 않음.
-        UI 통계 패널(숫자)은 DB와 맞춰 리셋하되, 필름스트립/GlobalView/LocalView 화면은
-        진행 중인 검사가 갑자기 비어 보이지 않도록 그대로 유지한다.
+        """Options 다이얼로그를 열고, 값이 실제로 바뀌었으면 폴더를 재오픈한 것처럼
+        전체 재시작(DB 초기화 + 처음부터 재검사)한다. 값이 그대로면 아무 것도 하지 않는다.
         """
-        reply = QMessageBox.question(
-            self, "DB 초기화",
-            "모든 검사 데이터를 삭제하시겠습니까?\n"
-            "진행 중인 검사는 중단되지 않습니다.",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No,
-        )
-        if reply != QMessageBox.Yes:
+        dialog = SettingsDialog(self._app_settings, self)
+        if dialog.exec_() != QDialog.Accepted:
             return
-        if not _DB_ENABLED:
+        new_settings = dialog.get_settings()
+        if new_settings == self._app_settings:
             return
-        try:
-            _db_clear()
-            self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
-            self._defect_distribution = {name: 0 for name in self._current_class_names()}
-            self._update_statistics_display()
-            self._status_label.setText("DB가 초기화되었습니다.")
-        except Exception as e:
-            QMessageBox.warning(self, "오류", f"DB 초기화 실패: {e}")
+
+        if self._current_folder is not None:
+            reply = QMessageBox.question(
+                self, "Option 변경",
+                "Option 값을 변경하면 현재 검사와 DB의 기존 결과가 모두 삭제되고\n"
+                "선택한 폴더를 처음부터 다시 검사합니다. 계속하시겠습니까?",
+                QMessageBox.Yes | QMessageBox.No,
+                QMessageBox.No,
+            )
+            if reply != QMessageBox.Yes:
+                return  # 변경 취소 — 저장하지 않음
+
+        self._app_settings = new_settings
+        self._save_settings(self._app_settings)
+        if self._current_folder is not None:
+            self._start_inspection(self._current_folder)
+
+    def _open_database_dialog(self):
+        dialog = DatabaseDialog(self)
+        dialog.reset_done.connect(self._on_db_reset_from_dialog)
+        dialog.exec_()
+
+    def _on_db_reset_from_dialog(self):
+        """DatabaseDialog에서 초기화가 실행된 뒤 MainWindow 쪽 상태를 맞춘다.
+        진행 중인 Worker는 중단하지 않고, 통계 패널만 DB와 맞춰 리셋한다.
+        """
+        self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
+        self._defect_distribution = {name: 0 for name in self._current_class_names()}
+        self._update_statistics_display()
+        self._status_label.setText("DB가 초기화되었습니다.")
 
     def _connect_signals(self):
         # Space 키: 일시정지/재개 (마우스 포커스 무관)
@@ -695,12 +773,10 @@ class MainWindow(QMainWindow):
         self._paused = False
         self._pause_label.setText("")
         self._current_image_index = -1
-        self._last_grid_image_index = -1
-        self._colored_images.clear()
+        self._current_colored_image = None
         self._tile_count = 0
         self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
         self._defect_distribution = {name: 0 for name in self._current_class_names()}
-        self._inference_times.clear()
         self._filmstrip.clear()
         self._global_view.clear_all()
         self._local_view.clear_all()
@@ -716,11 +792,12 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", f"No images found in:\n{folder}")
             return
 
-        # 가중치 파일 경로
-        weight_paths = []
-        for i in range(1, 6):
-            wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
-            weight_paths.append(str(wp))
+        # 가중치 파일 경로 (Options에서 선택한 1~5개 모델, 프로젝트 루트 기준 상대경로 또는 절대경로)
+        model_paths = json.loads(self._app_settings.get("model_paths", "[]")) or self._FALLBACK_MODEL_PATHS
+        weight_paths = [
+            p if Path(p).is_absolute() else str(_PROJECT_ROOT / p)
+            for p in model_paths
+        ]
 
         # 설정값: per-class REVIEW 밴드 (이름 키, 0.0~1.0 비율로 변환)
         per_class_bands = {
@@ -783,17 +860,17 @@ class MainWindow(QMainWindow):
         """새 이미지 검사 시작. 컬러 이미지를 GlobalView에 로드."""
         self._current_image_index = img_index
 
-        # 컬러 이미지 로드 (캐시)
-        if img_index not in self._colored_images:
-            colored_path = self._find_colored_image(filename)
-            if colored_path:
-                colored_img = cv2.imread(str(colored_path))
-                if colored_img is not None:
-                    self._colored_images[img_index] = colored_img
+        # 컬러 이미지 로드 (현재 이미지 1장만 유지 — 새 이미지 시작 시 항상 덮어씀)
+        self._current_colored_image = None
+        colored_path = self._find_colored_image(filename)
+        if colored_path:
+            colored_img = cv2.imread(str(colored_path))
+            if colored_img is not None:
+                self._current_colored_image = colored_img
 
         # GlobalView에 컬러 이미지 설정
-        if img_index in self._colored_images:
-            self._global_view.set_image(self._colored_images[img_index])
+        if self._current_colored_image is not None:
+            self._global_view.set_image(self._current_colored_image)
 
         self._status_label.setText(
             f"Inspecting image {img_index + 1}: {filename}"
@@ -802,26 +879,17 @@ class MainWindow(QMainWindow):
     @pyqtSlot(dict)
     def _on_tile_inspected(self, result):
         """타일 1개 검사 완료. UI 전체 갱신."""
-        img_index = result["image_index"]
         row = result["grid_row"]
         col = result["grid_col"]
-        rows = result["grid_rows"]
-        cols = result["grid_cols"]
         verdict = result["verdict"]
         detections = result["detections"]
         tile_bgr = result["tile_bgr"]
         thumb_bgr = result["thumb_bgr"]
-        inference_ms = result["inference_time_ms"]
 
-        # 그리드 초기화 (새 이미지의 첫 타일 도착 시)
-        if not hasattr(self, "_last_grid_image_index") or self._last_grid_image_index != img_index:
-            self._last_grid_image_index = img_index
-            tile_size = self._worker.tile_size if self._worker else 640
-            self._global_view.set_grid(rows, cols, cell_w=tile_size, cell_h=tile_size)
-
-        # GlobalView 업데이트
-        self._global_view.set_camera_position(row, col)
-        self._global_view.update_cell(row, col, verdict)
+        # GlobalView 업데이트 — 실제 타일 픽셀 좌표(오버랩 스트라이드 반영)에 박스 1개로 표시
+        tile_size = self._worker.tile_size
+        stride = InspectionWorker._compute_stride(tile_size, self._worker.overlap_pct)
+        self._global_view.set_scan_box(col * stride, row * stride, tile_size)
 
         # LocalView 업데이트 (이진화 타일 표시)
         self._local_view.set_image(tile_bgr)
@@ -840,7 +908,6 @@ class MainWindow(QMainWindow):
         elif verdict == "REVIEW":
             self._stats["review"] += 1
 
-        self._inference_times.append(inference_ms)
         self._tile_count += 1
 
         # 결함 분포 업데이트
@@ -876,7 +943,7 @@ class MainWindow(QMainWindow):
     def _on_all_done(self):
         self._progress_bar.setVisible(False)
         self._elapsed_timer.stop()
-        self._global_view.clear_camera()
+        self._global_view.clear_scan_box()
         self._update_statistics_display()
 
         self._status_label.setText(
