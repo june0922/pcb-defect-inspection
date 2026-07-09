@@ -157,9 +157,11 @@ class InspectionWorker(QThread):
                 # Extract tile
                 tile = self._extract_tile(img, row, col)
 
-                # Ensure BGR for model
-                if len(tile.shape) == 2:
-                    tile_bgr = cv2.cvtColor(tile, cv2.COLOR_GRAY2BGR)
+                # Ensure BGR for model — cv2.imread(IMREAD_UNCHANGED)는 환경/버전에 따라
+                # 흑백 PNG를 (H,W)가 아니라 (H,W,1)로 디코딩할 수 있어 둘 다 확인한다.
+                if tile.ndim == 2 or tile.shape[2] == 1:
+                    gray = tile if tile.ndim == 2 else tile[:, :, 0]
+                    tile_bgr = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
                 else:
                     tile_bgr = tile
 
