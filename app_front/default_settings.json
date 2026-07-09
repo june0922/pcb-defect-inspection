@@ -9,5 +9,12 @@
   ],
   "tile_size": 640,
   "overlap_pct": 0,
-  "alert_sound": true
+  "alert_sound": true,
+  "model_paths": [
+    "app_front/models/best_fold_1.pt",
+    "app_front/models/best_fold_2.pt",
+    "app_front/models/best_fold_3.pt",
+    "app_front/models/best_fold_4.pt",
+    "app_front/models/best_fold_5.pt"
+  ]
 }

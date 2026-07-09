@@ -74,18 +74,40 @@ class InferenceWorker(QThread):
             self.error.emit(f"추론 실패: {e}")
 
     def _load_models(self):
-        """5개 K-Fold .pt 가중치를 메모리에 로드."""
+        """weight_paths(1~5개) .pt 가중치를 메모리에 로드."""
+        self._models, self._class_names = self._load_models_from_paths(self._weight_paths)
+
+    def _load_models_from_paths(self, weight_paths):
+        """가중치 경로 리스트를 전부 로드해 (models, class_names)를 반환.
+
+        로컬 리스트에 전부 성공적으로 채운 뒤에만 반환한다 — 중간에 하나라도
+        실패하면 예외를 던지고 self._models는 전혀 건드리지 않으므로, 호출자가
+        실패 시 기존에 로딩되어 있던 모델 상태를 그대로 유지할 수 있다.
+        """
         from ultralytics import YOLO
 
-        self._models = []
-        for path in self._weight_paths:
+        models = []
+        for path in weight_paths:
             if not Path(path).exists():
                 raise FileNotFoundError(f"가중치 파일 없음: {path}")
             model = YOLO(path)
-            self._models.append(model)
+            models.append(model)
 
-        if self._models:
-            self._class_names = self._models[0].names
+        class_names = models[0].names if models else {}
+        return models, class_names
+
+    def set_weight_paths_and_reload(self, weight_paths):
+        """검사 모델 목록을 교체하고 동기적으로 다시 로드한다.
+
+        새 모델들이 전부 성공적으로 로드된 뒤에만 weight_paths/models/class_names를
+        교체한다. 일부 파일이 삭제되는 등 실패 시 예외를 그대로 전파하며, 이전까지
+        정상 동작하던 모델 상태는 그대로 유지된다 — 호출자(app_back 메인 UI의 폴링
+        루프)가 이 예외를 잡아 경고를 띄우고 기존 모델로 계속 동작하게 한다.
+        """
+        models, class_names = self._load_models_from_paths(weight_paths)
+        self._weight_paths = [str(p) for p in weight_paths]
+        self._models = models
+        self._class_names = class_names
 
     def _process_images(self):
         """이미지 리스트를 순회하며 앙상블 추론 수행."""

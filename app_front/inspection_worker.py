@@ -1,8 +1,6 @@
 # PCB 타일 단위 자동 검사 워커 (서펜타인 스캔 + 5K-Fold WBF 앙상블)
 
-import json
 import math
-import sys
 import time
 import threading
 from pathlib import Path
@@ -10,17 +8,6 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
-
-# ── 프로젝트 루트 (main_ui.py의 import 순서와 무관하게 독립적으로 확보) ──
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-if str(_PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(_PROJECT_ROOT))
-
-try:
-    from db.database import get_settings as _db_get_settings
-    _DB_ENABLED = True
-except Exception:
-    _DB_ENABLED = False
 
 # WBF 앙상블 병합용 IoU (YOLO26s는 NMS-free라 model.predict의 iou는 무의미하지만,
 # 서로 다른 모델의 박스를 같은 객체로 묶는 WBF 클러스터링 자체에는 필요해 내부 상수로 유지)
@@ -57,14 +44,14 @@ class InspectionWorker(QThread):
         """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
-        # public — Options 실시간 반영을 위해 워커 자신이 매 타일 직전 DB에서 갱신
+        # Options 값은 생성 시점에 확정되며 이 워커의 수명 동안 바뀌지 않는다 —
+        # 값이 바뀌려면 반드시 MainWindow가 새 워커로 전체 재시작한다.
         self.per_class_bands = per_class_bands
         # WBF 및 model.predict의 전역 최소 신뢰도 = 가장 낮은 review_min
         self._global_floor = min(
             (band[0] for band in per_class_bands.values()),
             default=0.30,
         )
-        # public — 이미지 시작 시점에 워커 자신이 DB에서 갱신 (다음 이미지부터 적용)
         self.tile_size = tile_size
         self.overlap_pct = overlap_pct
         self._device = device
@@ -78,47 +65,6 @@ class InspectionWorker(QThread):
     def set_image_paths(self, paths: list):
         """검사 대상 이미지 경로 리스트 설정."""
         self._image_paths = [str(p) for p in paths]
-
-    def _refresh_bands_from_db(self):
-        """DB에서 최신 Options(클래스별 REVIEW 밴드)를 읽어 자신의 속성을 갱신.
-
-        타일 처리 직전마다 호출되어 Options 변경이 다음 타일부터 즉시 반영되게 한다.
-        밴드는 class_name(이름) 기준으로 키를 삼는다 — class_id는 모델 가중치에
-        고정된 값이라 클래스 목록이 자유롭게 추가/삭제되면 인덱스가 밀릴 수 있다.
-        DB 조회 실패 시 마지막으로 알려진 값을 그대로 유지한다.
-        """
-        if not _DB_ENABLED:
-            return
-        try:
-            s = _db_get_settings()
-            class_names = json.loads(s.get("defect_classes", "[]"))
-            new_bands = {
-                name: (
-                    int(s.get(f"review_min_{name}", 30)) / 100.0,
-                    int(s.get(f"review_max_{name}", 70)) / 100.0,
-                )
-                for name in class_names
-            }
-            if new_bands:
-                self.per_class_bands = new_bands
-                self._global_floor = min(b[0] for b in new_bands.values())
-        except Exception:
-            pass
-
-    def _refresh_tile_geometry_from_db(self):
-        """DB에서 최신 타일 크기/오버랩을 읽어 자신의 속성을 갱신.
-
-        이미지 처리 시작 시점에 1회만 호출되어, 타일 크기/오버랩 변경이
-        "다음 이미지부터" 적용되게 한다(이미지 중간에 그리드가 바뀌는 위험 방지).
-        """
-        if not _DB_ENABLED:
-            return
-        try:
-            s = _db_get_settings()
-            self.tile_size = int(s.get("tile_size", 640))
-            self.overlap_pct = int(s.get("overlap_pct", 0))
-        except Exception:
-            pass
 
     def pause(self):
         """검사 일시정지."""
@@ -191,9 +137,6 @@ class InspectionWorker(QThread):
             if img is None:
                 continue
 
-            # 타일 크기/오버랩 실시간 반영 — 이미지 시작 시 1회만 재조회(다음 이미지부터 적용)
-            self._refresh_tile_geometry_from_db()
-
             h, w = img.shape[:2]
             rows, cols = self.compute_grid(h, w, tile_size=self.tile_size, overlap_pct=self.overlap_pct)
 
@@ -208,9 +151,6 @@ class InspectionWorker(QThread):
                 self._pause_event.wait()
                 if not self._running:
                     break
-
-                # Options(클래스별 REVIEW 밴드) 실시간 반영 — 타일마다 DB 재조회
-                self._refresh_bands_from_db()
 
                 # Extract tile
                 tile = self._extract_tile(img, row, col)
