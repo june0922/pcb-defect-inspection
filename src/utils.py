@@ -61,64 +61,97 @@ class GlobalProgressCallback:
     """전체 스크립트 실행(전체 폴드, 반복 등)에 걸쳐 단일 TQDM 바를 유지하는 콜백.
     YOLO의 기본 콘솔 출력(verbose=False)을 대체하여 깔끔한 진행률 바를 제공합니다.
     """
-    def __init__(self, total_epochs_per_run: int, total_runs: int = 1, run_type: str = "Fold", starting_run: int = 0):
+    def __init__(
+        self,
+        total_epochs_per_run: int,
+        total_runs: int = 1,
+        run_type: str = "Fold",
+        starting_run: int = 0,
+        fold_train_sizes: list[int] | None = None,
+    ):
         self.total_epochs_per_run = total_epochs_per_run
         self.total_runs = total_runs
         self.run_type = run_type
-        
+
         self.current_run = starting_run
         self.global_pbar = None
         self.start_time = None
-        
+
         self.total_train_batches = 0
         self.batches_done = 0
+        self.batches_this_session = 0  # ETA 속도 계산용 (프로세스 재시작 시 0부터)
         self.last_loss = 0.0
+
+        # fold 별 학습 이미지 수 (0-indexed, skf.split 으로 사전 계산됨).
+        # batch=-1(오토배치) 환경에서 아직 시작하지 않은/완료된 fold의 배치 수를
+        # "현재 fold와 동일한 batches_per_epoch" 로 근사하지 않고, fold 별 실제
+        # 이미지 수 기반으로 정확히 추정하기 위해 사용.
+        self.fold_train_sizes = fold_train_sizes
+        self.last_batch_size = None
 
     def on_pretrain_routine_end(self, trainer):
         # 매 model.train() 이 시작될 때마다 (즉 새로운 폴드나 이터레이션 시작 시) 호출됨
         self.current_run += 1
-        
+        cur_fold_idx = self.current_run - 1  # 0-indexed 현재 fold 번호
+
         train_loader = getattr(trainer, 'train_loader', None)
         batches_per_epoch = len(train_loader) if train_loader else 0
         start_epoch = getattr(trainer, 'start_epoch', 0)
-        epochs = getattr(trainer, 'epochs', self.total_epochs_per_run)
-        
-        # 이번 run에서 실제 실행할 에포크 수
-        epochs_this_run = epochs - start_epoch
-        
-        if not hasattr(self, 'actual_total_batches'):
-            self.actual_total_batches = 0
-            
-        # 이번 run에서 추가되는 총 배치 수 누적
-        self.actual_total_batches += epochs_this_run * batches_per_epoch
-        
-        # 미래에 실행될 남은 런(폴드/이터레이션)의 예상 배치 수 계산
-        remaining_runs = self.total_runs - self.current_run
-        estimated_future_batches = remaining_runs * self.total_epochs_per_run * batches_per_epoch
-        
-        current_total = self.actual_total_batches + estimated_future_batches
-        
+
+        # 실제 배치 크기 확보. YOLO의 batch=-1(오토배치) 설정 시 trainer.batch_size 에
+        # 실제 확정된 값이 담기므로, 다른 fold의 배치 수를 추정할 때 재사용한다.
+        batch_size = getattr(trainer, 'batch_size', None)
+        if not batch_size and batches_per_epoch and self.fold_train_sizes:
+            if 0 <= cur_fold_idx < len(self.fold_train_sizes):
+                batch_size = max(1, round(self.fold_train_sizes[cur_fold_idx] / batches_per_epoch))
+        if batch_size:
+            self.last_batch_size = batch_size
+        else:
+            batch_size = self.last_batch_size
+
         if self.global_pbar is None:
-            self.total_train_batches = current_total
+            # 전체 K-Fold 작업의 그랜드 토탈(모든 fold × epoch)을 최초 1회만 계산해
+            # 고정한다. fold가 바뀔 때마다 분모를 다시 추정하던 기존 방식은 완료된
+            # fold의 배치 수가 분모에서 누락되거나(과소) fold마다 total이 흔들리는
+            # 문제가 있었다.
+            if self.fold_train_sizes and batch_size:
+                # fold 별 실제 학습 이미지 수 기반으로 정확히 추정 (fold마다 split 크기가 다름)
+                bpe_per_fold = [-(-size // batch_size) for size in self.fold_train_sizes]
+            else:
+                # fold 별 크기 정보가 없으면 현재 fold의 batches_per_epoch로 근사 (기존 방식)
+                bpe_per_fold = [batches_per_epoch] * self.total_runs
+
+            self.total_train_batches = sum(bpe_per_fold) * self.total_epochs_per_run
+
+            # --resume 로 스크립트가 새 프로세스로 재시작된 경우, 분자(batches_done)를
+            # 0으로 두면 실제로는 진행 중이어도 (완료된 fold + 남은 fold 전체를 포함하는)
+            # 그랜드 토탈에 비해 한동안 0%로 보인다. 이미 완료된 fold와 이번에 이어
+            # 학습하는 fold의 기완료 epoch 만큼을 분자에 미리 반영한다.
+            completed_bpe = bpe_per_fold[:cur_fold_idx] if cur_fold_idx <= len(bpe_per_fold) else bpe_per_fold
+            completed_batches = sum(completed_bpe) * self.total_epochs_per_run
+            cur_fold_bpe = bpe_per_fold[cur_fold_idx] if cur_fold_idx < len(bpe_per_fold) else batches_per_epoch
+            self.batches_done = completed_batches + start_epoch * cur_fold_bpe
+
             # 단일 TQDM 바 생성
             self.global_pbar = tqdm(
-                total=self.total_train_batches, 
-                desc="Training", 
+                total=self.total_train_batches,
+                initial=self.batches_done,
+                desc="Training",
                 bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
                 leave=True
             )
             self.start_time = time.time()
-        else:
-            self.total_train_batches = current_total
-            self.global_pbar.total = self.total_train_batches
-            
+        # else: 같은 프로세스 내 다음 fold로 전환되는 경우, 그랜드 토탈은 이미
+        # 고정되어 있으므로 재계산하지 않는다 (on_train_batch_end 에서 계속 누적됨).
+
     def on_train_batch_end(self, trainer):
         if self.global_pbar is None:
             return
             
         self.batches_done += 1
+        self.batches_this_session += 1
         self.global_pbar.update(1)
-        
+
         # Loss 업데이트
         loss = getattr(trainer, 'loss', None)
         if loss is not None:
@@ -127,10 +160,11 @@ class GlobalProgressCallback:
                 self.last_loss = float(loss.detach().cpu().numpy()[0]) if hasattr(loss, 'detach') else float(loss)
             except:
                 pass
-        
-        # Total ETA 계산
+
+        # Total ETA 계산 (속도는 이번 세션에서 실제로 처리한 배치 기준으로 계산.
+        # batches_done 에는 resume 시 미리 반영한 기완료분이 섞여 있어 속도 계산에는 부적합)
         elapsed = time.time() - self.start_time
-        speed = elapsed / self.batches_done if self.batches_done > 0 else 0
+        speed = elapsed / self.batches_this_session if self.batches_this_session > 0 else 0
         eta_sec = (self.total_train_batches - self.batches_done) * speed
         m, s = divmod(int(eta_sec), 60)
         h, m = divmod(m, 60)

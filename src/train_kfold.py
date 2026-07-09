@@ -177,7 +177,12 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
     skf = StratifiedGroupKFold(n_splits=k, shuffle=True, random_state=random_state)
     
     images_arr = np.array(images)
-    
+
+    # fold 분할을 한 번만 계산해 재사용 (진행률 추정에 필요한 fold별 크기와
+    # 실제 학습 루프가 서로 다른 분할을 보지 않도록 보장)
+    fold_splits = list(skf.split(images_arr, y, groups))
+    fold_train_sizes = [len(train_idx) for train_idx, _ in fold_splits]
+
     # 완료된 fold 수를 세어 시작 run 번호 지정
     completed_folds = 0
     if resume:
@@ -189,13 +194,14 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
 
     from utils import GlobalProgressCallback
     eta_callback = GlobalProgressCallback(
-        total_epochs_per_run=tc["epochs"], 
-        total_runs=k, 
+        total_epochs_per_run=tc["epochs"],
+        total_runs=k,
         run_type="Fold",
-        starting_run=completed_folds
+        starting_run=completed_folds,
+        fold_train_sizes=fold_train_sizes,
     )
-    
-    for fold, (train_idx, val_idx) in enumerate(skf.split(images_arr, y, groups)):
+
+    for fold, (train_idx, val_idx) in enumerate(fold_splits):
         fold_num = fold + 1  # 사용자 노출용 1-indexed 폴드 번호
 
         # --- Resume 모드: fold 상태 판별 ---
