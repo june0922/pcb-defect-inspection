@@ -267,7 +267,7 @@ class InspectionWorker(QThread):
         return tile
 
     def _ensemble_predict(self, img: np.ndarray) -> list:
-        """5개 모델 예측 → WBF 병합 → 결함 리스트 반환.
+        """앙상블 모델 예측 → WBF 병합 → 결함 리스트 반환.
         global_floor (활성 클래스 review_min 최솟값)을 model.predict 기준으로 사용.
         활성 클래스 목록에 없는 이름의 검출은 결과에서 제외한다.
         """
@@ -322,9 +322,7 @@ class InspectionWorker(QThread):
             band = bands.get(class_name)
             if band is None:
                 continue  # 활성 클래스 목록에 없음 — 검토 대상 아님
-            r_min, _ = band
-            if conf_score < r_min:
-                continue
+            # review_min 미만인 검출도 남긴다 — LocalView가 초록(PASS 수준) 박스로 표시한다.
             x1n, y1n, x2n, y2n = box_n
             detections.append({
                 "bbox_abs": [
