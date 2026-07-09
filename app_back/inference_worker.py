@@ -7,6 +7,10 @@ import cv2
 import numpy as np
 from PyQt5.QtCore import QThread, pyqtSignal
 
+# WBF 앙상블 병합용 IoU (YOLO26s는 NMS-free라 model.predict의 iou는 무의미하지만,
+# 서로 다른 모델의 박스를 같은 객체로 묶는 WBF 클러스터링 자체에는 필요해 내부 상수로 유지)
+_WBF_IOU_THR = 0.45
+
 
 class InferenceWorker(QThread):
     """5개 K-Fold 모델의 WBF 앙상블 추론을 백그라운드 스레드에서 수행.
@@ -26,19 +30,16 @@ class InferenceWorker(QThread):
     def __init__(self, weight_paths,
                  min_conf: float = 0.30,
                  max_conf: float = 1.0,
-                 iou_thresh: float = 0.45,
                  device: str = "cpu",
                  parent=None):
         """
         min_conf: WBF 및 model.predict 하한 (DB settings의 global_floor)
         max_conf: 표시 상한 (기본 1.0 — 모든 검출 표시)
-        iou_thresh: WBF IoU 임계값 (DB settings의 iou_threshold)
         """
         super().__init__(parent)
         self._weight_paths = [str(p) for p in weight_paths]
         self.min_conf = min_conf      # public — poll 중 DB 변경 감지 시 직접 업데이트
         self.max_conf = max_conf
-        self.iou_thresh = iou_thresh  # public — poll 중 업데이트
         self._device = device
         self._image_paths = []
         self._models = []
@@ -137,10 +138,10 @@ class InferenceWorker(QThread):
         all_labels = []
 
         for model in self._models:
+            # YOLO26s는 NMS-free(end2end)라 iou 인자는 무시되므로 전달하지 않는다.
             res = model.predict(
                 img_source,
                 conf=self.min_conf,
-                iou=self.iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -165,7 +166,7 @@ class InferenceWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=self.iou_thresh,
+            iou_thr=_WBF_IOU_THR,
             skip_box_thr=self.min_conf,
         )
 
@@ -174,7 +175,7 @@ class InferenceWorker(QThread):
             conf_score = float(score)
             if not (self.min_conf <= conf_score <= self.max_conf):
                 continue
-                
+
             x1n, y1n, x2n, y2n = box_n
             cls_id = int(label)
             detections.append({
@@ -210,10 +211,10 @@ class InferenceWorker(QThread):
         all_labels = []
 
         for model in self._models:
+            # YOLO26s는 NMS-free(end2end)라 iou 인자는 무시되므로 전달하지 않는다.
             res = model.predict(
                 img,
                 conf=self.min_conf,
-                iou=self.iou_thresh,
                 verbose=False,
                 device=self._device,
             )[0]
@@ -237,7 +238,7 @@ class InferenceWorker(QThread):
             all_scores,
             all_labels,
             weights=None,
-            iou_thr=self.iou_thresh,
+            iou_thr=_WBF_IOU_THR,
             skip_box_thr=self.min_conf,
         )
 

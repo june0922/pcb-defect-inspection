@@ -1,5 +1,6 @@
 # PCB 실시간 검사 모니터링 메인 윈도우 (자동 AOI 시뮬레이션)
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -11,9 +12,8 @@ from PyQt5.QtWidgets import (
     QListWidget, QListWidgetItem,
     QStatusBar, QLabel, QFileDialog, QMessageBox, QProgressBar,
     QApplication, QAction, QShortcut, QDialog, QFormLayout,
-    QDialogButtonBox, QSpinBox, QDoubleSpinBox, QCheckBox, QGroupBox,
-    QGridLayout, QFrame, QSizePolicy, QTableWidget, QTableWidgetItem,
-    QHeaderView,
+    QDialogButtonBox, QSpinBox, QCheckBox, QGroupBox,
+    QGridLayout, QFrame, QSizePolicy, QPushButton,
 )
 from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer, QEvent
 from PyQt5.QtGui import (
@@ -24,6 +24,7 @@ from PyQt5.QtGui import (
 from vision_viewer import VisionViewer
 from global_view import GlobalView
 from inspection_worker import InspectionWorker
+from class_band_table import ClassBandTableWidget
 
 # ── 프로젝트 루트 ──────────────────────────
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -41,6 +42,9 @@ try:
         get_settings as _db_get_settings,
         update_settings as _db_update_settings,
         get_db_stats as _db_get_stats,
+        force_reset_settings_to_defaults as _db_force_reset_settings,
+        load_default_settings_raw as _db_load_defaults_raw,
+        save_default_settings_raw as _db_save_defaults_raw,
     )
     _DB_ENABLED = True
 except Exception as _e:
@@ -58,27 +62,45 @@ VERDICT_COLORS = {
     "REVIEW": QColor(255, 200, 0),
 }
 
-# 결함 클래스 (data.yaml 기준)
-DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+
+# ── 공통 스타일 ────────────────────────────────────────────────
+
+_DIALOG_STYLE = """
+    QDialog { background-color: #1e1e1e; color: #ccc; }
+    QLabel { color: #ccc; }
+    QTableWidget { background-color: #1a1a1a; color: #ccc;
+                    gridline-color: #333; border: 1px solid #333; }
+    QTableWidget::item { padding: 2px; }
+    QTableWidget::item:selected { background-color: #2a4a7a; }
+    QHeaderView::section { background-color: #2a2a2a; color: #ccc;
+                             border: 1px solid #333; padding: 4px; }
+    QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
+    QCheckBox { color: #ccc; }
+    QPushButton { background-color: #333; color: #ccc; padding: 5px; }
+    QPushButton:hover { background-color: #444; }
+"""
+
+
+def _settings_to_classes_list(settings: dict) -> list:
+    """settings dict(defect_classes JSON + review_min_*/review_max_*)를
+    [{"name","review_min","review_max"}, ...] 형태로 변환."""
+    names = json.loads(settings.get("defect_classes", "[]"))
+    return [
+        {
+            "name": name,
+            "review_min": int(settings.get(f"review_min_{name}", 30)),
+            "review_max": int(settings.get(f"review_max_{name}", 70)),
+        }
+        for name in names
+    ]
 
 
 # ── SettingsDialog ────────────────────────────────────────────
 
 class SettingsDialog(QDialog):
-    """검사 파라미터 설정 다이얼로그 (클래스별 REVIEW 밴드)."""
+    """검사 파라미터 설정 다이얼로그 (클래스별 REVIEW 밴드, 타일 크기/오버랩).
 
-    _STYLE = """
-        QDialog { background-color: #1e1e1e; color: #ccc; }
-        QLabel { color: #ccc; }
-        QTableWidget { background-color: #1a1a1a; color: #ccc;
-                        gridline-color: #333; border: 1px solid #333; }
-        QTableWidget::item { padding: 2px; }
-        QHeaderView::section { background-color: #2a2a2a; color: #ccc;
-                                 border: 1px solid #333; padding: 4px; }
-        QSpinBox, QDoubleSpinBox { background-color: #2a2a2a; color: #ccc; padding: 2px; }
-        QCheckBox { color: #ccc; }
-        QPushButton { background-color: #333; color: #ccc; padding: 5px; }
-        QPushButton:hover { background-color: #444; }
+    이 다이얼로그에서 바꾼 값은 현재 세션의 DB에만 반영된다(공장 기본값은 안 바뀜).
     """
 
     def __init__(self, current_settings: dict, parent=None):
@@ -89,55 +111,30 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout(self)
 
-        # ── per-class REVIEW 밴드 테이블 ──────────────────────────
+        # ── per-class REVIEW 밴드 테이블 (자유 추가/삭제) ──────────
         band_label = QLabel("클래스별 REVIEW 신뢰도 밴드 (하한 ≤ REVIEW < 상한, 상한 초과 → FAIL)")
         band_label.setStyleSheet("color: #aaa; font-size: 8pt;")
         layout.addWidget(band_label)
 
-        self._table = QTableWidget(len(DEFECT_CLASSES), 3)
-        self._table.setHorizontalHeaderLabels(["결함 클래스", "REVIEW MIN (%)", "REVIEW MAX (%)"])
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionMode(QTableWidget.NoSelection)
-        self._table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self._table.setFixedHeight(len(DEFECT_CLASSES) * 30 + 30)
+        self._class_table = ClassBandTableWidget(_settings_to_classes_list(current_settings))
+        layout.addWidget(self._class_table)
 
-        self._min_spins: list[QSpinBox] = []
-        self._max_spins: list[QSpinBox] = []
-
-        for i, cls in enumerate(DEFECT_CLASSES):
-            name_item = QTableWidgetItem(cls)
-            name_item.setTextAlignment(Qt.AlignCenter)
-            self._table.setItem(i, 0, name_item)
-
-            min_spin = QSpinBox()
-            min_spin.setRange(1, 99)
-            min_spin.setSuffix(" %")
-            min_spin.setValue(int(current_settings.get(f"review_min_{cls}", 30)))
-            min_spin.setToolTip(f"{cls}: 이 값 미만 → PASS")
-            self._table.setCellWidget(i, 1, min_spin)
-            self._min_spins.append(min_spin)
-
-            max_spin = QSpinBox()
-            max_spin.setRange(2, 100)
-            max_spin.setSuffix(" %")
-            max_spin.setValue(int(current_settings.get(f"review_max_{cls}", 70)))
-            max_spin.setToolTip(f"{cls}: 이 값 초과 → FAIL")
-            self._table.setCellWidget(i, 2, max_spin)
-            self._max_spins.append(max_spin)
-
-        layout.addWidget(self._table)
-
-        # ── IoU + 경고음 ──────────────────────────────────────────
+        # ── 타일 크기 / 오버랩 / 경고음 ────────────────────────────
         form_layout = QFormLayout()
 
-        self.iou_spin = QDoubleSpinBox()
-        self.iou_spin.setRange(0.10, 0.95)
-        self.iou_spin.setSingleStep(0.05)
-        self.iou_spin.setValue(float(current_settings.get("iou_threshold", 0.45)))
-        form_layout.addRow("IoU Threshold:", self.iou_spin)
+        self.tile_size_spin = QSpinBox()
+        self.tile_size_spin.setRange(8, 1280)
+        self.tile_size_spin.setSuffix(" px")
+        self.tile_size_spin.setValue(int(current_settings.get("tile_size", 640)))
+        self.tile_size_spin.setToolTip("정사각형 검사 단위 한 변의 길이 (8~1280px)")
+        form_layout.addRow("타일 크기:", self.tile_size_spin)
+
+        self.overlap_spin = QSpinBox()
+        self.overlap_spin.setRange(0, 90)
+        self.overlap_spin.setSuffix(" %")
+        self.overlap_spin.setValue(int(current_settings.get("overlap_pct", 0)))
+        self.overlap_spin.setToolTip("인접 타일 간 겹침 비율 (0~90%)")
+        form_layout.addRow("오버랩:", self.overlap_spin)
 
         self.alert_check = QCheckBox("FAIL 검출 시 경고음")
         alert_val = current_settings.get("alert_sound", True)
@@ -148,6 +145,12 @@ class SettingsDialog(QDialog):
 
         layout.addLayout(form_layout)
 
+        # ── 기본값 수정 진입점 ─────────────────────────────────────
+        defaults_btn = QPushButton("기본값 수정...")
+        defaults_btn.setToolTip("프로그램을 다시 시작했을 때 적용되는 공장 기본값을 수정합니다.")
+        defaults_btn.clicked.connect(self._open_defaults_edit_dialog)
+        layout.addWidget(defaults_btn)
+
         self.button_box = QDialogButtonBox(
             QDialogButtonBox.Ok | QDialogButtonBox.Cancel
         )
@@ -155,29 +158,125 @@ class SettingsDialog(QDialog):
         self.button_box.rejected.connect(self.reject)
         layout.addWidget(self.button_box)
 
-        self.setStyleSheet(self._STYLE)
+        self.setStyleSheet(_DIALOG_STYLE)
+
+    def _open_defaults_edit_dialog(self):
+        DefaultsEditDialog(self).exec_()
 
     def _validate_and_accept(self):
         """각 클래스에 대해 review_min < review_max 유효성 검증."""
-        for i, cls in enumerate(DEFECT_CLASSES):
-            mn = self._min_spins[i].value()
-            mx = self._max_spins[i].value()
-            if mn >= mx:
-                QMessageBox.warning(
-                    self, "설정 오류",
-                    f"[{cls}] REVIEW MIN({mn}%) 은 MAX({mx}%) 보다 작아야 합니다.",
-                )
-                return
+        err = self._class_table.validate()
+        if err:
+            QMessageBox.warning(self, "설정 오류", err)
+            return
         self.accept()
 
     def get_settings(self) -> dict:
         s: dict = {}
-        for i, cls in enumerate(DEFECT_CLASSES):
-            s[f"review_min_{cls}"] = int(self._min_spins[i].value())
-            s[f"review_max_{cls}"] = int(self._max_spins[i].value())
-        s["iou_threshold"] = round(float(self.iou_spin.value()), 2)
+        bands = self._class_table.get_bands()
+        s["defect_classes"] = json.dumps(list(bands.keys()))
+        for name, (mn, mx) in bands.items():
+            s[f"review_min_{name}"] = mn
+            s[f"review_max_{name}"] = mx
+        s["tile_size"] = self.tile_size_spin.value()
+        s["overlap_pct"] = self.overlap_spin.value()
         s["alert_sound"] = self.alert_check.isChecked()
         return s
+
+
+# ── DefaultsEditDialog ────────────────────────────────────────
+
+class DefaultsEditDialog(QDialog):
+    """공장 기본값(default_settings.json) 자체를 수정하는 다이얼로그.
+
+    여기서 바꾼 값은 현재 세션에는 영향을 주지 않고, 다음 실행부터 적용된다.
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("기본값 수정")
+        self.setMinimumWidth(480)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+
+        self._raw = _db_load_defaults_raw() if _DB_ENABLED else {
+            "defect_classes": [], "tile_size": 640, "overlap_pct": 0, "alert_sound": True,
+        }
+
+        layout = QVBoxLayout(self)
+
+        notice = QLabel("여기서 수정한 값은 프로그램을 다시 시작했을 때부터 적용됩니다.")
+        notice.setStyleSheet("color: #ffc800; font-size: 8pt;")
+        notice.setWordWrap(True)
+        layout.addWidget(notice)
+
+        band_label = QLabel("공장 기본 클래스 목록 및 REVIEW 밴드")
+        band_label.setStyleSheet("color: #aaa; font-size: 8pt;")
+        layout.addWidget(band_label)
+
+        self._class_table = ClassBandTableWidget(self._raw.get("defect_classes", []))
+        layout.addWidget(self._class_table)
+
+        form_layout = QFormLayout()
+
+        self.tile_size_spin = QSpinBox()
+        self.tile_size_spin.setRange(8, 1280)
+        self.tile_size_spin.setSuffix(" px")
+        self.tile_size_spin.setValue(int(self._raw.get("tile_size", 640)))
+        form_layout.addRow("타일 크기:", self.tile_size_spin)
+
+        self.overlap_spin = QSpinBox()
+        self.overlap_spin.setRange(0, 90)
+        self.overlap_spin.setSuffix(" %")
+        self.overlap_spin.setValue(int(self._raw.get("overlap_pct", 0)))
+        form_layout.addRow("오버랩:", self.overlap_spin)
+
+        self.alert_check = QCheckBox("FAIL 검출 시 경고음")
+        self.alert_check.setChecked(bool(self._raw.get("alert_sound", True)))
+        form_layout.addRow("", self.alert_check)
+
+        layout.addLayout(form_layout)
+
+        self.button_box = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        self.button_box.accepted.connect(self._validate_and_save)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
+
+        self.setStyleSheet(_DIALOG_STYLE)
+
+    def _validate_and_save(self):
+        err = self._class_table.validate()
+        if err:
+            QMessageBox.warning(self, "설정 오류", err)
+            return
+
+        reply = QMessageBox.question(
+            self, "기본값 수정",
+            "기본값을 수정하면 프로그램을 다시 시작해야 적용됩니다.\n계속하시겠습니까?",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        bands = self._class_table.get_bands()
+        new_raw = {
+            "defect_classes": [
+                {"name": name, "review_min": mn, "review_max": mx}
+                for name, (mn, mx) in bands.items()
+            ],
+            "tile_size": self.tile_size_spin.value(),
+            "overlap_pct": self.overlap_spin.value(),
+            "alert_sound": self.alert_check.isChecked(),
+        }
+        if _DB_ENABLED:
+            try:
+                _db_save_defaults_raw(new_raw)
+            except Exception as e:
+                QMessageBox.warning(self, "오류", f"기본값 저장 실패: {e}")
+                return
+        self.accept()
 
 
 # ── MainWindow ────────────────────────────────────────────────
@@ -217,11 +316,18 @@ class MainWindow(QMainWindow):
             "fail": 0,
             "review": 0,
         }
-        self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
         self._inference_times: list[float] = []
 
-        # 설정 (DB에서 로드)
+        # Options 설정 — app_front 구동 시 항상 파일 기본값으로 DB를 강제 초기화한 뒤 로드
+        # (세션 중 Option 변경은 DB에만 반영되고 파일 기본값은 바뀌지 않는다)
+        if _DB_ENABLED:
+            try:
+                _db_init()
+                _db_force_reset_settings()
+            except Exception as e:
+                print(f"[DB] 기본값 강제 초기화 실패: {e}")
         self._app_settings = self._load_settings()
+        self._defect_distribution = {name: 0 for name in self._current_class_names()}
 
         self._init_ui()
         self._init_menu()
@@ -231,13 +337,16 @@ class MainWindow(QMainWindow):
 
     # ── 설정 로드/저장 (DB 기반) ──────────────────────────────
 
+    _FALLBACK_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+
     def _load_settings(self) -> dict:
         """DB settings 테이블에서 설정을 읽어 반환. DB가 없으면 기본값 사용."""
-        defaults: dict = {}
-        for cls in DEFECT_CLASSES:
+        defaults: dict = {"defect_classes": json.dumps(self._FALLBACK_CLASSES)}
+        for cls in self._FALLBACK_CLASSES:
             defaults[f"review_min_{cls}"] = 30
             defaults[f"review_max_{cls}"] = 70
-        defaults["iou_threshold"] = 0.45
+        defaults["tile_size"] = 640
+        defaults["overlap_pct"] = 0
         defaults["alert_sound"] = True
 
         if not _DB_ENABLED:
@@ -245,17 +354,26 @@ class MainWindow(QMainWindow):
         try:
             _db_init()
             raw = _db_get_settings()
-            result: dict = {}
-            for cls in DEFECT_CLASSES:
+            class_names = json.loads(raw.get("defect_classes", "[]")) or self._FALLBACK_CLASSES
+            result: dict = {"defect_classes": json.dumps(class_names)}
+            for cls in class_names:
                 result[f"review_min_{cls}"] = int(raw.get(f"review_min_{cls}", 30))
                 result[f"review_max_{cls}"] = int(raw.get(f"review_max_{cls}", 70))
-            result["iou_threshold"] = round(float(raw.get("iou_threshold", 0.45)), 2)
+            result["tile_size"] = int(raw.get("tile_size", 640))
+            result["overlap_pct"] = int(raw.get("overlap_pct", 0))
             alert_val = raw.get("alert_sound", "true")
             result["alert_sound"] = alert_val if isinstance(alert_val, bool) else alert_val.lower() == "true"
             return result
         except Exception as e:
             print(f"[DB] 설정 로드 실패, 기본값 사용: {e}")
             return defaults
+
+    def _current_class_names(self) -> list:
+        """현재 _app_settings에서 활성 클래스 이름 리스트를 파싱."""
+        try:
+            return json.loads(self._app_settings.get("defect_classes", "[]"))
+        except Exception:
+            return list(self._FALLBACK_CLASSES)
 
     def _save_settings(self, settings: dict) -> None:
         """설정을 DB settings 테이블에 저장."""
@@ -526,7 +644,7 @@ class MainWindow(QMainWindow):
         try:
             _db_clear()
             self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
-            self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
+            self._defect_distribution = {name: 0 for name in self._current_class_names()}
             self._update_statistics_display()
             self._status_label.setText("DB가 초기화되었습니다.")
         except Exception as e:
@@ -581,7 +699,7 @@ class MainWindow(QMainWindow):
         self._colored_images.clear()
         self._tile_count = 0
         self._stats = {"total_tiles": 0, "inspected": 0, "pass": 0, "fail": 0, "review": 0}
-        self._defect_distribution = {cls: 0 for cls in DEFECT_CLASSES}
+        self._defect_distribution = {name: 0 for name in self._current_class_names()}
         self._inference_times.clear()
         self._filmstrip.clear()
         self._global_view.clear_all()
@@ -604,15 +722,16 @@ class MainWindow(QMainWindow):
             wp = _PROJECT_ROOT / "weights" / f"best_fold_{i}.pt"
             weight_paths.append(str(wp))
 
-        # 설정값: per-class REVIEW 밴드 (0.0~1.0 비율로 변환)
+        # 설정값: per-class REVIEW 밴드 (이름 키, 0.0~1.0 비율로 변환)
         per_class_bands = {
-            i: (
-                self._app_settings.get(f"review_min_{cls}", 30) / 100.0,
-                self._app_settings.get(f"review_max_{cls}", 70) / 100.0,
+            name: (
+                self._app_settings.get(f"review_min_{name}", 30) / 100.0,
+                self._app_settings.get(f"review_max_{name}", 70) / 100.0,
             )
-            for i, cls in enumerate(DEFECT_CLASSES)
+            for name in self._current_class_names()
         }
-        iou_thresh = float(self._app_settings.get("iou_threshold", 0.45))
+        tile_size = int(self._app_settings.get("tile_size", 640))
+        overlap_pct = int(self._app_settings.get("overlap_pct", 0))
 
         # GPU/CPU 자동 판별
         try:
@@ -624,7 +743,8 @@ class MainWindow(QMainWindow):
         self._worker = InspectionWorker(
             weight_paths=weight_paths,
             per_class_bands=per_class_bands,
-            iou_thresh=iou_thresh,
+            tile_size=tile_size,
+            overlap_pct=overlap_pct,
             device=device,
         )
         self._worker.set_image_paths(image_paths)
@@ -696,7 +816,8 @@ class MainWindow(QMainWindow):
         # 그리드 초기화 (새 이미지의 첫 타일 도착 시)
         if not hasattr(self, "_last_grid_image_index") or self._last_grid_image_index != img_index:
             self._last_grid_image_index = img_index
-            self._global_view.set_grid(rows, cols)
+            tile_size = self._worker.tile_size if self._worker else 640
+            self._global_view.set_grid(rows, cols, cell_w=tile_size, cell_h=tile_size)
 
         # GlobalView 업데이트
         self._global_view.set_camera_position(row, col)
@@ -870,11 +991,11 @@ class MainWindow(QMainWindow):
                 self._lbl_throughput.setText(f"{tiles_per_min:.1f} tiles/min")
 
         # 결함 분포
-        dist_parts = []
-        for cls in DEFECT_CLASSES:
-            count = self._defect_distribution.get(cls, 0)
-            if count > 0:
-                dist_parts.append(f"{cls}: {count}")
+        dist_parts = [
+            f"{cls}: {count}"
+            for cls, count in self._defect_distribution.items()
+            if count > 0
+        ]
         self._lbl_defect_dist.setText(
             " | ".join(dist_parts) if dist_parts else "No defects detected"
         )

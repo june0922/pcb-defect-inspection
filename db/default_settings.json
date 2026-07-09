@@ -1,0 +1,13 @@
+{
+  "defect_classes": [
+    {"name": "open", "review_min": 30, "review_max": 70},
+    {"name": "short", "review_min": 30, "review_max": 70},
+    {"name": "mousebite", "review_min": 30, "review_max": 70},
+    {"name": "spur", "review_min": 30, "review_max": 70},
+    {"name": "copper", "review_min": 30, "review_max": 70},
+    {"name": "pinhole", "review_min": 30, "review_max": 70}
+  ],
+  "tile_size": 640,
+  "overlap_pct": 0,
+  "alert_sound": true
+}

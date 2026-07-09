@@ -1,5 +1,6 @@
 # PCB 결함 리뷰 스테이션 — DB에서 REVIEW 타일을 실시간으로 수신하여 추론 표시
 
+import json
 import sys
 import time
 from pathlib import Path
@@ -37,9 +38,6 @@ try:
 except Exception as _e:
     print(f"[DB] 연동 비활성화: {_e}")
     _DB_ENABLED = False
-
-# 결함 클래스 이름 (데이터셋 기준)
-_DEFECT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
 
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
@@ -87,9 +85,11 @@ class MainWindow(QMainWindow):
         self._last_session_id: str = ""
         self._worker: InferenceWorker | None = None
 
-        # DB에서 읽어온 현재 설정 (폴링마다 갱신)
-        self._per_class_bands: dict = {i: (0.30, 0.70) for i in range(6)}
-        self._iou_thresh: float = 0.45
+        # DB에서 읽어온 현재 설정 (폴링마다 갱신, class_name 키)
+        self._per_class_bands: dict = {
+            cls: (0.30, 0.70)
+            for cls in ["open", "short", "mousebite", "spur", "copper", "pinhole"]
+        }
 
         self._db_poll_timer = QTimer(self)
         self._db_poll_timer.setInterval(3000)
@@ -249,12 +249,20 @@ class MainWindow(QMainWindow):
     # ── 모델 로딩 ──────────────────────────────────────────────
 
     def _parse_bands(self, s: dict) -> dict:
-        """DB settings dict → {class_id: (review_min, review_max)} (0.0~1.0 비율)."""
+        """DB settings dict → {class_name: (review_min, review_max)} (0.0~1.0 비율).
+
+        class_id(모델 가중치에 고정된 정수)가 아니라 이름을 키로 쓴다 — app_front에서
+        클래스 목록을 자유롭게 추가/삭제하면 순서/개수가 바뀔 수 있기 때문이다.
+        """
         bands = {}
-        for i, cls in enumerate(_DEFECT_CLASSES):
-            r_min = int(s.get(f"review_min_{cls}", 30)) / 100.0
-            r_max = int(s.get(f"review_max_{cls}", 70)) / 100.0
-            bands[i] = (r_min, r_max)
+        try:
+            class_names = json.loads(s.get("defect_classes", "[]"))
+        except Exception:
+            class_names = []
+        for name in class_names:
+            r_min = int(s.get(f"review_min_{name}", 30)) / 100.0
+            r_max = int(s.get(f"review_max_{name}", 70)) / 100.0
+            bands[name] = (r_min, r_max)
         return bands
 
     def _start_model_loading(self):
@@ -274,7 +282,6 @@ class MainWindow(QMainWindow):
                 _db_init()
                 s = _db_get_settings()
                 self._per_class_bands = self._parse_bands(s)
-                self._iou_thresh = float(s.get("iou_threshold", 0.45))
                 self._last_session_id = s.get("db_session_id", "")
             except Exception as e:
                 print(f"[DB] 초기 설정 로드 실패: {e}")
@@ -285,7 +292,6 @@ class MainWindow(QMainWindow):
             weight_paths=weight_paths,
             min_conf=global_floor,
             max_conf=1.0,
-            iou_thresh=self._iou_thresh,
             device=device,
         )
         self._worker.models_loaded.connect(self._on_models_loaded)
@@ -328,15 +334,12 @@ class MainWindow(QMainWindow):
             self._on_db_reset()
             return  # 이번 폴링은 리셋 처리만
 
-        # per-class bands 및 IoU 갱신
+        # per-class bands 갱신 (클래스 추가/삭제도 다음 폴링에서 자동 반영)
         new_bands = self._parse_bands(s)
-        new_iou = float(s.get("iou_threshold", 0.45))
-        bands_changed = new_bands != self._per_class_bands or new_iou != self._iou_thresh
+        bands_changed = new_bands != self._per_class_bands
         self._per_class_bands = new_bands
-        self._iou_thresh = new_iou
-        if bands_changed and self._worker:
+        if bands_changed and self._worker and new_bands:
             self._worker.min_conf = min(b[0] for b in new_bands.values())
-            self._worker.iou_thresh = new_iou
 
         # ── 새 타일 조회 ─────────────────────────────────────────
         try:
@@ -365,6 +368,18 @@ class MainWindow(QMainWindow):
         self._global_scene.clear()
         self._status_label.setText("DB가 초기화되었습니다. 새 검사를 기다리는 중...")
 
+    def _filter_by_active_bands(self, detections: list, crops: list) -> tuple:
+        """활성 클래스 목록(self._per_class_bands)에 없는 이름의 검출/크롭을 제외.
+
+        detections와 crops는 1:1 매핑이므로 함께 필터링해 인덱스를 맞춘다.
+        """
+        filtered_dets, filtered_crops = [], []
+        for det, crop in zip(detections, crops):
+            if det["class_name"] in self._per_class_bands:
+                filtered_dets.append(det)
+                filtered_crops.append(crop)
+        return filtered_dets, filtered_crops
+
     def _process_tile(self, tile_row: dict):
         """PNG BLOB 디코딩 → 추론 → 타일 엔트리 생성 → FilmStrip 추가."""
         buf = np.frombuffer(tile_row["tile_image"], dtype=np.uint8)
@@ -372,10 +387,11 @@ class MainWindow(QMainWindow):
         if img_bgr is None:
             return
 
-        # 메인 스레드에서 동기 추론 (640×640 타일 1장)
+        # 메인 스레드에서 동기 추론 (타일 1장)
         result = self._worker.run_single_image_sync(img_bgr)
-        detections = result.get("detections", [])
-        crops = result.get("crops", [])
+        detections, crops = self._filter_by_active_bands(
+            result.get("detections", []), result.get("crops", [])
+        )
 
         entry = TileEntry(
             tile_id=tile_row["id"],
@@ -569,8 +585,9 @@ class MainWindow(QMainWindow):
 
         entry = self._tiles[self._current_index]
         result = self._worker.run_single_image_sync(entry.img_bgr)
-        detections = result.get("detections", [])
-        crops = result.get("crops", [])
+        detections, crops = self._filter_by_active_bands(
+            result.get("detections", []), result.get("crops", [])
+        )
 
         if not detections:
             self._remove_tile_at(self._current_index)
