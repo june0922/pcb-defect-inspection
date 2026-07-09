@@ -27,7 +27,7 @@ train:
   batch: -1
   epochs: 600
   model: weights/yolo26s.pt
-  patience: 200
+  patience: 100
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: ram
 train_tune:
