@@ -1,4 +1,4 @@
-# PCB 전체 이미지 그리드 맵 뷰어 (검사 현황 오버레이)
+# PCB 전체 이미지 뷰어 (현재 검사 위치를 실제 픽셀 좌표 기반 박스 1개로 표시)
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene
@@ -8,28 +8,14 @@ from PyQt5.QtGui import (
     QImage, QPixmap,
 )
 
-# Color scheme (industry standard traffic light + low alpha to not obscure background)
-CELL_COLORS = {
-    "PASS":    QColor(0, 200, 0, 50),      # Light green, very transparent
-    "FAIL":    QColor(255, 50, 50, 70),     # Light red
-    "REVIEW":  QColor(255, 200, 0, 50),     # Light yellow
-    "UNINSPECTED": QColor(0, 0, 0, 60),     # Dark overlay for uninspected areas
-}
-
-CELL_BORDER_COLORS = {
-    "PASS":    QColor(0, 200, 0, 120),
-    "FAIL":    QColor(255, 50, 50, 150),
-    "REVIEW":  QColor(255, 200, 0, 120),
-    "UNINSPECTED": QColor(80, 80, 80, 100),
-}
-
-CAMERA_COLOR = QColor(0, 255, 255, 200)  # Cyan for current scan position
+SCAN_BOX_COLOR = QColor(255, 40, 40, 230)  # 빨간색 — 현재 검사 위치
 
 
 class GlobalView(QGraphicsView):
-    """PCB 전체 컬러 이미지 위에 10×10 그리드 오버레이를 표시.
-    각 셀은 PASS/FAIL/REVIEW/미검사 상태를 색상으로 표시.
-    현재 카메라(검사) 위치를 강조 표시.
+    """PCB 전체 컬러 이미지 위에 현재 검사 위치를 빨간 박스 1개로 표시.
+
+    오버랩 설정에 따라 타일이 서로 겹칠 수 있어 그리드 셀 단위의 PASS/FAIL/REVIEW
+    색상 표시는 더 이상 의미가 없다 — 실제 타일 위치(픽셀 좌표)만 정확히 보여준다.
     """
 
     def __init__(self, parent=None):
@@ -44,14 +30,7 @@ class GlobalView(QGraphicsView):
         self.setFocusPolicy(Qt.NoFocus)
 
         self._pixmap_item = None
-        self._grid_rows = 0
-        self._grid_cols = 0
-        self._cell_w = 640
-        self._cell_h = 640
-        self._cell_items = {}        # (row, col) -> QGraphicsRectItem (fill)
-        self._cell_border_items = {} # (row, col) -> QGraphicsRectItem (border)
-        self._camera_item = None     # QGraphicsRectItem for camera position
-        self._grid_line_items = []   # Grid line items
+        self._scan_box_item = None  # QGraphicsRectItem, 현재 검사 위치
 
     # ------------------------------------------------------------------
     # Public API
@@ -64,10 +43,7 @@ class GlobalView(QGraphicsView):
         """
         self._scene.clear()
         self._pixmap_item = None
-        self._cell_items.clear()
-        self._cell_border_items.clear()
-        self._camera_item = None
-        self._grid_line_items.clear()
+        self._scan_box_item = None
 
         rgb = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -80,133 +56,39 @@ class GlobalView(QGraphicsView):
         self._scene.setSceneRect(QRectF(0, 0, w, h))
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def set_grid(self, rows: int, cols: int, cell_w: int = 640, cell_h: int = 640):
-        """그리드 오버레이 초기화.
-        All cells start as UNINSPECTED (dark semi-transparent overlay).
-        Draw thin grid lines.
+    def set_scan_box(self, x: float, y: float, size: float):
+        """현재 검사 중인 타일 위치를 실제 픽셀 좌표 기준으로 표시.
+
+        x, y: 타일 좌상단의 이미지 픽셀 좌표 (오버랩 스트라이드 반영된 실제 위치)
+        size: 타일 한 변의 길이(px, 정사각형)
         """
-        self._grid_rows = rows
-        self._grid_cols = cols
-        self._cell_w = cell_w
-        self._cell_h = cell_h
-
-        # Remove previous grid / cell items (keep pixmap)
-        for item in self._cell_items.values():
-            self._scene.removeItem(item)
-        for item in self._cell_border_items.values():
-            self._scene.removeItem(item)
-        for item in self._grid_line_items:
-            self._scene.removeItem(item)
-        if self._camera_item is not None:
-            self._scene.removeItem(self._camera_item)
-            self._camera_item = None
-        self._cell_items.clear()
-        self._cell_border_items.clear()
-        self._grid_line_items.clear()
-
-        # --- Grid lines (Z = 1, between pixmap and cell fills) ---
-        grid_pen = QPen(QColor(255, 255, 255, 40))
-        grid_pen.setWidthF(0.5)
-        grid_pen.setCosmetic(True)
-
-        total_w = cols * cell_w
-        total_h = rows * cell_h
-
-        # Vertical lines
-        for c in range(cols + 1):
-            x = c * cell_w
-            line = self._scene.addLine(x, 0, x, total_h, grid_pen)
-            line.setZValue(1)
-            self._grid_line_items.append(line)
-
-        # Horizontal lines
-        for r in range(rows + 1):
-            y = r * cell_h
-            line = self._scene.addLine(0, y, total_w, y, grid_pen)
-            line.setZValue(1)
-            self._grid_line_items.append(line)
-
-        # --- Cell overlays (Z = 2) ---
-        fill_color = CELL_COLORS["UNINSPECTED"]
-        border_color = CELL_BORDER_COLORS["UNINSPECTED"]
-
-        border_pen = QPen(border_color)
-        border_pen.setWidthF(1)
-        border_pen.setCosmetic(True)
-
-        no_pen = QPen(Qt.NoPen)
-
-        for r in range(rows):
-            for c in range(cols):
-                rect = QRectF(c * cell_w, r * cell_h, cell_w, cell_h)
-
-                # Fill rect
-                fill_item = self._scene.addRect(rect, no_pen, QBrush(fill_color))
-                fill_item.setZValue(2)
-                self._cell_items[(r, c)] = fill_item
-
-                # Border rect
-                border_item = self._scene.addRect(rect, border_pen, QBrush(Qt.NoBrush))
-                border_item.setZValue(2)
-                self._cell_border_items[(r, c)] = border_item
-
-    def update_cell(self, row: int, col: int, verdict: str):
-        """셀 상태 업데이트 (PASS/FAIL/REVIEW).
-        verdict must be one of 'PASS', 'FAIL', 'REVIEW'.
-        Updates both fill color and border color.
-        """
-        key = (row, col)
-        if key not in self._cell_items:
+        if x < 0 or y < 0:
+            self.clear_scan_box()
             return
 
-        verdict_upper = verdict.upper()
-        fill_color = CELL_COLORS.get(verdict_upper, CELL_COLORS["UNINSPECTED"])
-        border_color = CELL_BORDER_COLORS.get(verdict_upper, CELL_BORDER_COLORS["UNINSPECTED"])
+        rect = QRectF(x, y, size, size)
 
-        # Update fill
-        self._cell_items[key].setBrush(QBrush(fill_color))
-
-        # Update border
-        pen = QPen(border_color)
-        pen.setWidthF(1)
+        pen = QPen(SCAN_BOX_COLOR)
+        pen.setWidthF(3)
         pen.setCosmetic(True)
-        self._cell_border_items[key].setPen(pen)
 
-    def set_camera_position(self, row: int, col: int):
-        """현재 카메라(검사) 위치 강조 표시.
-        Cyan dashed border, thicker (3px), no fill.
-        Previous camera highlight is removed.
-        """
-        self.clear_camera()
+        if self._scan_box_item is not None:
+            self._scan_box_item.setRect(rect)
+        else:
+            self._scan_box_item = self._scene.addRect(rect, pen, QBrush(Qt.NoBrush))
+            self._scan_box_item.setZValue(10)
 
-        if row < 0 or row >= self._grid_rows or col < 0 or col >= self._grid_cols:
-            return
-
-        rect = QRectF(col * self._cell_w, row * self._cell_h,
-                       self._cell_w, self._cell_h)
-
-        cam_pen = QPen(CAMERA_COLOR)
-        cam_pen.setWidthF(3)
-        cam_pen.setCosmetic(True)
-        cam_pen.setStyle(Qt.DashLine)
-
-        self._camera_item = self._scene.addRect(rect, cam_pen, QBrush(Qt.NoBrush))
-        self._camera_item.setZValue(10)
-
-    def clear_camera(self):
-        """카메라 위치 표시 제거."""
-        if self._camera_item is not None:
-            self._scene.removeItem(self._camera_item)
-            self._camera_item = None
+    def clear_scan_box(self):
+        """검사 위치 박스 제거."""
+        if self._scan_box_item is not None:
+            self._scene.removeItem(self._scan_box_item)
+            self._scan_box_item = None
 
     def clear_all(self):
         """모든 아이템 초기화."""
         self._scene.clear()
         self._pixmap_item = None
-        self._cell_items.clear()
-        self._cell_border_items.clear()
-        self._camera_item = None
-        self._grid_line_items.clear()
+        self._scan_box_item = None
 
     # ------------------------------------------------------------------
     # Qt overrides
