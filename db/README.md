@@ -28,7 +28,7 @@ db/
 │ 컬럼         │ 타입      │ 설명                                       │
 ├──────────────┼───────────┼──────────────────────────────────────────┤
 │ id           │ INTEGER   │ PK, AUTOINCREMENT                         │
-│ tile_image   │ BLOB      │ PNG 인코딩된 640×640 타일 이미지           │
+│ tile_image   │ BLOB      │ PNG 인코딩된 타일 이미지 (크기는 타일크기 설정에 따름)│
 │ verdict      │ TEXT      │ AI 판정: PASS / FAIL / REVIEW             │
 │ image_path   │ TEXT      │ 원본 이미지 파일 절대 경로                 │
 │ grid_row     │ INTEGER   │ 타일 그리드 행 번호 (0-based)             │
@@ -62,25 +62,24 @@ UNIQUE(image_path, grid_row, grid_col)
 └────────────┴──────────┴──────────────────────────┘
 ```
 
-**기본값 (15개 키, 최초 실행 시 자동 삽입)**
+**기본값 키**
+
+클래스별 `review_min_*`/`review_max_*` 쌍이 있어 실제 키 개수는 등록된 결함 클래스 수에 따라 달라진다(고정 개수가 아니다). 아래는 `defect_classes`가 기본 6개일 때의 예시다.
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `iou_threshold` | `"0.45"` | WBF / NMS IoU 임계값 |
+| `defect_classes` | `'["open","short",...]'` (JSON 배열) | 활성 결함 클래스 목록 |
+| `tile_size` | `"640"` | 타일 한 변의 길이(px) |
+| `overlap_pct` | `"0"` | 인접 타일 간 겹침 비율(%) |
 | `alert_sound` | `"true"` | FAIL 검출 시 경고음 활성화 |
-| `review_min_open` | `"30"` | open 결함 REVIEW 하한 (%) |
-| `review_max_open` | `"70"` | open 결함 REVIEW 상한, 초과 시 FAIL (%) |
-| `review_min_short` | `"30"` | short 결함 REVIEW 하한 |
-| `review_max_short` | `"70"` | short 결함 REVIEW 상한 |
-| `review_min_mousebite` | `"30"` | mousebite 결함 REVIEW 하한 |
-| `review_max_mousebite` | `"70"` | mousebite 결함 REVIEW 상한 |
-| `review_min_spur` | `"30"` | spur 결함 REVIEW 하한 |
-| `review_max_spur` | `"70"` | spur 결함 REVIEW 상한 |
-| `review_min_copper` | `"30"` | copper 결함 REVIEW 하한 |
-| `review_max_copper` | `"70"` | copper 결함 REVIEW 상한 |
-| `review_min_pinhole` | `"30"` | pinhole 결함 REVIEW 하한 |
-| `review_max_pinhole` | `"70"` | pinhole 결함 REVIEW 상한 |
+| `model_paths` | `'["...best_fold_1.pt", ...]'` (JSON 배열) | 검사 모델(.pt) 경로 목록, 1개 이상 |
+| `review_min_{class}` | `"30"` | 클래스별 REVIEW 하한 (%), 클래스마다 1개씩 |
+| `review_max_{class}` | `"70"` | 클래스별 REVIEW 상한, 초과 시 FAIL (%), 클래스마다 1개씩 |
 | `db_session_id` | UUID4 | DB 초기화 감지용 세션 토큰 |
+
+**진짜 기본값은 `app_front/default_settings.json`이 소유한다.** 이 DB 계층(`db/database.py`의 `_bootstrap_settings()`)은 위 표와 동일한 형태의 **최소 하드코딩 안전망**만 갖고 있으며, `init_db()`가 `INSERT OR IGNORE`로 시딩하므로 이미 값이 있으면 절대 덮어쓰지 않는다. 이 안전망은 app_back이 app_front보다 먼저 실행되어 DB가 완전히 비어있는 극단적 상황에서만 의미가 있다 — 정상적인 흐름에서는 app_front가 시작할 때마다 `default_settings.json`의 실제 값으로 강제 초기화한다.
+
+안전망의 `model_paths` 기본값(`weights/best_fold_1~5.pt`)은 학습 파이프라인 폴더를 가리키며, `app_front/default_settings.json`의 실제 배포 기본값(`app_front/models/best_fold_1~5.pt`)과는 **다른 경로**다 — 안전망은 최후의 수단일 뿐 정상 배포 경로와 일치할 필요가 없다.
 
 ---
 
@@ -109,6 +108,7 @@ app_back: _poll_db() (3초마다)
 | `init_db` | `() → None` | 테이블 생성 또는 구버전 스키마 자동 마이그레이션, 기본값 삽입 |
 | `upsert_tile` | `(tile_bgr, verdict, image_path, grid_row, grid_col) → None` | 타일 삽입/교체 (동일 위치면 최신값으로 덮어씀) |
 | `fetch_review_tiles` | `(after_id=0) → list[dict]` | `verdict='REVIEW'`인 타일을 `after_id` 이후 ID순으로 반환 |
+| `get_tile_image` | `(tile_id) → bytes or None` | 단일 타일의 원본 PNG BLOB 조회 (app_back의 브러쉬 수정 복원 기능이 사용) |
 | `count_by_verdict` | `() → dict` | `{verdict: count}` 형태로 판정별 타일 수 집계 |
 | `save_user_verdict` | `(tile_id, user_verdict) → None` | 작업자 판정 저장 (`user_verdict` + `updated_at` 업데이트) |
 | `clear_all` | `() → None` | tiles 전체 삭제 + AUTOINCREMENT 리셋 + db_session_id 갱신 |
