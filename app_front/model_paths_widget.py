@@ -1,4 +1,4 @@
-# 검사용 YOLO 모델(.pt 1~5개)을 선택·검증하는 재사용 위젯 (SettingsDialog/DefaultsEditDialog 공용)
+# 검사용 YOLO 모델(.pt 1개 이상)을 선택·검증하는 재사용 위젯 (SettingsDialog/DefaultsEditDialog 공용)
 
 from pathlib import Path
 
@@ -13,10 +13,10 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def validate_model_files(paths: list, active_class_names: list) -> tuple:
-    """1~5개 .pt 파일이 앙상블 추론에 쓰기 적합한지 검증.
+    """.pt 파일 1개 이상이 앙상블 추론에 쓰기 적합한지 검증.
 
     확인 순서:
-    1) 개수가 1~5개인지
+    1) 개수가 1개 이상인지
     2) 확장자가 .pt인지 (OS 파일창 필터와 별개로 코드에서도 재확인)
     3) YOLO(path) 로드 + 더미 이미지 predict()가 예외 없이 끝나는지
        (ultralytics는 .pt가 아닌 파일도 로드 시점엔 조용히 "성공"하고 predict() 시점에야
@@ -27,8 +27,8 @@ def validate_model_files(paths: list, active_class_names: list) -> tuple:
 
     Returns: (성공 여부, 실패 시 사용자에게 보여줄 에러 메시지)
     """
-    if not (1 <= len(paths) <= 5):
-        return False, f"모델은 1~5개를 선택해야 합니다. (현재 {len(paths)}개)"
+    if len(paths) < 1:
+        return False, "모델을 최소 1개 이상 선택해야 합니다."
 
     for p in paths:
         if Path(p).suffix.lower() != ".pt":
@@ -68,7 +68,7 @@ def validate_model_files(paths: list, active_class_names: list) -> tuple:
 
 
 class ModelPathsWidget(QWidget):
-    """검사 모델(.pt 1~5개) 선택 위젯. 검증에 실패하면 이전 선택을 그대로 유지한다."""
+    """검사 모델(.pt 1개 이상) 선택 위젯. 검증에 실패하면 이전 선택을 그대로 유지한다."""
 
     def __init__(self, model_paths: list, get_active_class_names, parent=None):
         """
@@ -88,7 +88,7 @@ class ModelPathsWidget(QWidget):
         self._label.setStyleSheet("color: #ccc;")
         layout.addWidget(self._label)
 
-        btn = QPushButton("모델 파일 선택... (.pt, 1~5개)")
+        btn = QPushButton("모델 파일 선택... (.pt, 1개 이상)")
         btn.clicked.connect(self._on_select_clicked)
         layout.addWidget(btn)
 
@@ -103,7 +103,7 @@ class ModelPathsWidget(QWidget):
 
     def _on_select_clicked(self):
         selected, _ = QFileDialog.getOpenFileNames(
-            self, "검사 모델 선택 (.pt, 1~5개)",
+            self, "검사 모델 선택 (.pt, 1개 이상)",
             str(_PROJECT_ROOT), "PyTorch Model (*.pt)",
         )
         if not selected:

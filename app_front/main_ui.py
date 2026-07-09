@@ -145,7 +145,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form_layout)
 
         # ── 검사 모델 선택 ──────────────────────────────────────────
-        model_label = QLabel("검사 모델 (.pt 1~5개, 앙상블 추론에 사용)")
+        model_label = QLabel("검사 모델 (.pt 1개 이상, 앙상블 추론에 사용)")
         model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
         layout.addWidget(model_label)
 
@@ -246,7 +246,7 @@ class DefaultsEditDialog(QDialog):
         layout.addLayout(form_layout)
 
         # ── 검사 모델 선택 ──────────────────────────────────────────
-        model_label = QLabel("공장 기본 검사 모델 (.pt 1~5개)")
+        model_label = QLabel("공장 기본 검사 모델 (.pt 1개 이상)")
         model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
         layout.addWidget(model_label)
 
@@ -792,7 +792,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", f"No images found in:\n{folder}")
             return
 
-        # 가중치 파일 경로 (Options에서 선택한 1~5개 모델, 프로젝트 루트 기준 상대경로 또는 절대경로)
+        # 가중치 파일 경로 (Options에서 선택한 모델 1개 이상, 프로젝트 루트 기준 상대경로 또는 절대경로)
         model_paths = json.loads(self._app_settings.get("model_paths", "[]")) or self._FALLBACK_MODEL_PATHS
         weight_paths = [
             p if Path(p).is_absolute() else str(_PROJECT_ROOT / p)

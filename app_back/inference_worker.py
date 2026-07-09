@@ -74,7 +74,7 @@ class InferenceWorker(QThread):
             self.error.emit(f"추론 실패: {e}")
 
     def _load_models(self):
-        """weight_paths(1~5개) .pt 가중치를 메모리에 로드."""
+        """weight_paths(1개 이상) .pt 가중치를 메모리에 로드."""
         self._models, self._class_names = self._load_models_from_paths(self._weight_paths)
 
     def _load_models_from_paths(self, weight_paths):
