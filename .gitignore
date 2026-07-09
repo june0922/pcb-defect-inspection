@@ -4,6 +4,10 @@ preprocessed_data/
 dataset/
 merged_data/
 
+# 학습 산출물 (가중치/로그/플롯) — Drive/로컬에만 보관, git 커밋 대상 아님
+runs/
+web_test/weights/
+
 # 학습 로그
 *.log
 

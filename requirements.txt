@@ -10,10 +10,6 @@ scipy
 networkx
 Pillow
 
-# 튜닝 라이브러리 (Optuna, ASHA 등)
-ray[tune]
-optuna
-
 # 웹 데모 (web_hwang/)
 fastapi
 uvicorn[standard]
