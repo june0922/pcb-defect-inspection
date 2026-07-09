@@ -145,7 +145,7 @@ class SettingsDialog(QDialog):
         layout.addLayout(form_layout)
 
         # ── 검사 모델 선택 ──────────────────────────────────────────
-        model_label = QLabel("검사 모델 (.pt 1~5개, 앙상블 추론에 사용)")
+        model_label = QLabel("검사 모델 (.pt 1개 이상, 앙상블 추론에 사용)")
         model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
         layout.addWidget(model_label)
 
@@ -246,7 +246,7 @@ class DefaultsEditDialog(QDialog):
         layout.addLayout(form_layout)
 
         # ── 검사 모델 선택 ──────────────────────────────────────────
-        model_label = QLabel("공장 기본 검사 모델 (.pt 1~5개)")
+        model_label = QLabel("공장 기본 검사 모델 (.pt 1개 이상)")
         model_label.setStyleSheet("color: #aaa; font-size: 8pt;")
         layout.addWidget(model_label)
 
@@ -406,6 +406,8 @@ class MainWindow(QMainWindow):
         # 항상 "현재 이미지" 1장만 화면에 쓰이므로 딕셔너리로 계속 누적할 필요가 없다
         # (매 이미지 시작 시 덮어씀 — 6400x6400 이미지 1장이 ~122MB라 무제한 누적 시 메모리 누수였음)
         self._current_colored_image: np.ndarray | None = None
+        # LocalView 검출 박스 색상 판정에 쓰이는 클래스별 REVIEW 밴드 — _start_inspection()에서 채움
+        self._per_class_bands: dict = {}
         self._inspection_start_time: float = 0.0
         self._tile_count: int = 0
 
@@ -792,7 +794,7 @@ class MainWindow(QMainWindow):
             QMessageBox.warning(self, "Warning", f"No images found in:\n{folder}")
             return
 
-        # 가중치 파일 경로 (Options에서 선택한 1~5개 모델, 프로젝트 루트 기준 상대경로 또는 절대경로)
+        # 가중치 파일 경로 (Options에서 선택한 모델 1개 이상, 프로젝트 루트 기준 상대경로 또는 절대경로)
         model_paths = json.loads(self._app_settings.get("model_paths", "[]")) or self._FALLBACK_MODEL_PATHS
         weight_paths = [
             p if Path(p).is_absolute() else str(_PROJECT_ROOT / p)
@@ -807,6 +809,7 @@ class MainWindow(QMainWindow):
             )
             for name in self._current_class_names()
         }
+        self._per_class_bands = per_class_bands
         tile_size = int(self._app_settings.get("tile_size", 640))
         overlap_pct = int(self._app_settings.get("overlap_pct", 0))
 
@@ -894,7 +897,7 @@ class MainWindow(QMainWindow):
         # LocalView 업데이트 (이진화 타일 표시)
         self._local_view.set_image(tile_bgr)
         if detections:
-            self._local_view.set_detections(detections)
+            self._local_view.set_detections(detections, per_class_bands=self._per_class_bands)
 
         # FilmStrip 썸네일 추가
         self._add_thumbnail(thumb_bgr, verdict, result)
@@ -910,11 +913,15 @@ class MainWindow(QMainWindow):
 
         self._tile_count += 1
 
-        # 결함 분포 업데이트
+        # 결함 분포 업데이트 — review_min 미만(초록, LocalView 참고용 표시)은 통계에서 제외
         for det in detections:
             cls_name = det.get("class_name", "")
-            if cls_name in self._defect_distribution:
-                self._defect_distribution[cls_name] += 1
+            if cls_name not in self._defect_distribution:
+                continue
+            band = self._per_class_bands.get(cls_name)
+            if band is not None and det.get("confidence", 0.0) < band[0]:
+                continue
+            self._defect_distribution[cls_name] += 1
 
         self._update_statistics_display()
 

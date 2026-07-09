@@ -10,19 +10,34 @@ from PyQt5.QtGui import (
 )
 
 
-def confidence_color(conf: float) -> QColor:
-    """신호등 배색: 앙상블 신뢰도에 따른 색상 반환.
+def confidence_color(
+    conf: float,
+    class_name: str | None = None,
+    per_class_bands: dict | None = None,
+) -> QColor:
+    """클래스별 REVIEW 밴드 기반 색상 반환.
 
-    0.90 이상 → Red (확실한 불량)
-    0.70~0.89 → Yellow (모호함)
-    0.70 미만 → Gray (가짜 결함 의심)
+    per_class_bands가 주어지면 해당 클래스의 (review_min, review_max)를 기준으로:
+      conf > review_max  → Red (FAIL 수준)
+      conf >= review_min → Yellow (REVIEW 수준)
+      conf < review_min  → Green (PASS 수준)
+
+    per_class_bands가 없으면 레거시 고정 임계값(0.70/0.90) 사용.
     """
+    if per_class_bands and class_name in per_class_bands:
+        r_min, r_max = per_class_bands[class_name]
+        if conf > r_max:
+            return QColor(255, 68, 68)
+        elif conf >= r_min:
+            return QColor(255, 215, 0)
+        else:
+            return QColor(0, 200, 0)
+    # 레거시 폴백
     if conf >= 0.90:
         return QColor(255, 68, 68)
     elif conf >= 0.70:
         return QColor(255, 215, 0)
-    else:
-        return QColor(136, 136, 136)
+    return QColor(0, 200, 0)
 
 
 class DefectLabel(QGraphicsItem):
@@ -104,11 +119,12 @@ class VisionViewer(QGraphicsView):
         self._scene.setSceneRect(QRectF(pixmap.rect()))
         self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
 
-    def set_detections(self, detections: list):
+    def set_detections(self, detections: list, per_class_bands: dict | None = None):
         """결함 리스트로 코너 브라켓 + 라벨 오버레이 렌더링.
 
         Args:
             detections: list of dicts with bbox_abs, class_name, confidence
+            per_class_bands: {class_name: (review_min, review_max)} — 색상 결정용.
         All detections shown with equal thickness (2.5px cosmetic pen).
         """
         self._clear_overlay()
@@ -117,7 +133,7 @@ class VisionViewer(QGraphicsView):
             x1, y1, x2, y2 = det["bbox_abs"]
             conf = det["confidence"]
             cls_name = det["class_name"]
-            color = confidence_color(conf)
+            color = confidence_color(conf, class_name=cls_name, per_class_bands=per_class_bands)
 
             bracket_items = self._draw_corner_brackets(
                 x1, y1, x2, y2, color, thickness=2.5

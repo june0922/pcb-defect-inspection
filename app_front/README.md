@@ -108,10 +108,10 @@ IoU Threshold:  [0.10 ~ 0.95, step 0.05]  기본값: 0.45
      │
      ▼
 [WBF 앙상블 추론]  _ensemble_predict(tile_bgr)
-  ├─ 5개 YOLO 모델 각각 predict(conf=global_floor)
+  ├─ 선택된 YOLO 모델(1개 이상) 각각 predict(conf=global_floor)
   │    global_floor = min(모든 클래스의 review_min)
   ├─ weighted_boxes_fusion(iou_thr, skip_box_thr=global_floor)
-  └─ per-class review_min 미만 검출 제거
+  └─ 활성 클래스 목록에 없는 검출만 제거 (review_min 미만도 남겨 LocalView에서 초록으로 표시)
      │
      ▼
 [판정]  _classify_verdict(detections)
@@ -182,7 +182,7 @@ IoU Threshold:  [0.10 ~ 0.95, step 0.05]  기본값: 0.45
 현재 처리 중인 타일을 표시하는 비대화형 뷰어입니다.
 - 결함 위치에 **코너 브라켓** 오버레이 (팔 길이 = bbox 너비의 20%)
 - 라벨: `{class_name} {conf:.2f}` — 줌 불변 크기 (Consolas 9pt Bold, 검정 70% 불투명 배경)
-- 신뢰도 색상: 빨강(FAIL 수준) / 노랑(REVIEW 수준) / 회색(PASS 수준)
+- 신뢰도 색상: 빨강(FAIL 수준) / 노랑(REVIEW 수준) / 초록(PASS 수준) — 클래스별 REVIEW MIN/MAX(%)에 동적으로 연동
 
 ---
 
