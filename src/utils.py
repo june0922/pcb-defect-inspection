@@ -72,6 +72,7 @@ class GlobalProgressCallback:
         
         self.total_train_batches = 0
         self.batches_done = 0
+        self.batches_this_session = 0  # ETA 속도 계산용 (프로세스 재시작 시 0부터)
         self.last_loss = 0.0
 
     def on_pretrain_routine_end(self, trainer):
@@ -100,10 +101,23 @@ class GlobalProgressCallback:
         
         if self.global_pbar is None:
             self.total_train_batches = current_total
+
+            # --resume 로 스크립트가 새 프로세스로 재시작된 경우, 분자(batches_done)를
+            # 0으로 두면 분모(이미 끝난 fold + 남은 fold 전체)에 비해 지나치게 작아져
+            # 실제로는 진행 중이어도 퍼센트가 한동안 0%로 표시된다.
+            # 이미 완료된 fold 수와 이번에 이어 학습하는 fold의 기완료 epoch 만큼을
+            # 분자에 미리 반영해 실제 누적 진행률을 표시한다.
+            already_done_folds = self.current_run - 1
+            self.batches_done = (
+                already_done_folds * self.total_epochs_per_run * batches_per_epoch
+                + start_epoch * batches_per_epoch
+            )
+
             # 단일 TQDM 바 생성
             self.global_pbar = tqdm(
-                total=self.total_train_batches, 
-                desc="Training", 
+                total=self.total_train_batches,
+                initial=self.batches_done,
+                desc="Training",
                 bar_format="{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}{postfix}]",
                 leave=True
             )
@@ -117,8 +131,9 @@ class GlobalProgressCallback:
             return
             
         self.batches_done += 1
+        self.batches_this_session += 1
         self.global_pbar.update(1)
-        
+
         # Loss 업데이트
         loss = getattr(trainer, 'loss', None)
         if loss is not None:
@@ -127,10 +142,11 @@ class GlobalProgressCallback:
                 self.last_loss = float(loss.detach().cpu().numpy()[0]) if hasattr(loss, 'detach') else float(loss)
             except:
                 pass
-        
-        # Total ETA 계산
+
+        # Total ETA 계산 (속도는 이번 세션에서 실제로 처리한 배치 기준으로 계산.
+        # batches_done 에는 resume 시 미리 반영한 기완료분이 섞여 있어 속도 계산에는 부적합)
         elapsed = time.time() - self.start_time
-        speed = elapsed / self.batches_done if self.batches_done > 0 else 0
+        speed = elapsed / self.batches_this_session if self.batches_this_session > 0 else 0
         eta_sec = (self.total_train_batches - self.batches_done) * speed
         m, s = divmod(int(eta_sec), 60)
         h, m = divmod(m, 60)
