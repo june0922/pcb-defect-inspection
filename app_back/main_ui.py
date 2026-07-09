@@ -42,6 +42,10 @@ except Exception as _e:
 THUMB_SIZE = 96
 BORDER_WIDTH = 3
 DEBOUNCE_SEC = 0.10
+# 한 번의 폴링(3초)에서 처리할 최대 타일 수 — REVIEW가 폭주해 한 번에 수십~수백 건이
+# 도착해도 전부 동기 추론하면 UI가 통째로 멈추므로, 초과분은 다음 폴링으로 미뤄 분산한다
+MAX_TILES_PER_POLL_TICK = 10
+_FALLBACK_MODEL_PATHS = [f"weights/best_fold_{i}.pt" for i in range(1, 6)]
 
 BORDER_COLORS = {
     "pending": QColor(128, 128, 128),
@@ -90,6 +94,8 @@ class MainWindow(QMainWindow):
             cls: (0.30, 0.70)
             for cls in ["open", "short", "mousebite", "spur", "copper", "pinhole"]
         }
+        # 마지막으로 반영한 검사 모델 목록 (폴링마다 DB와 비교해 변경 감지)
+        self._last_model_paths: list = list(_FALLBACK_MODEL_PATHS)
 
         self._db_poll_timer = QTimer(self)
         self._db_poll_timer.setInterval(3000)
@@ -265,11 +271,14 @@ class MainWindow(QMainWindow):
             bands[name] = (r_min, r_max)
         return bands
 
-    def _start_model_loading(self):
-        weight_paths = [
-            str(_PROJECT_ROOT / "weights" / f"best_fold_{i}.pt")
-            for i in range(1, 6)
+    def _resolve_weight_paths(self, model_paths: list) -> list:
+        """model_paths(프로젝트 루트 기준 상대경로 또는 절대경로 문자열)를 절대경로로 변환."""
+        return [
+            p if Path(p).is_absolute() else str(_PROJECT_ROOT / p)
+            for p in model_paths
         ]
+
+    def _start_model_loading(self):
         try:
             import torch
             device = "0" if torch.cuda.is_available() else "cpu"
@@ -277,19 +286,22 @@ class MainWindow(QMainWindow):
             device = "cpu"
 
         # DB에서 초기 설정 읽기 (실패 시 기본값 유지)
+        model_paths = list(_FALLBACK_MODEL_PATHS)
         if _DB_ENABLED:
             try:
                 _db_init()
                 s = _db_get_settings()
                 self._per_class_bands = self._parse_bands(s)
                 self._last_session_id = s.get("db_session_id", "")
+                model_paths = json.loads(s.get("model_paths", "[]")) or model_paths
             except Exception as e:
                 print(f"[DB] 초기 설정 로드 실패: {e}")
+        self._last_model_paths = list(model_paths)
 
         global_floor = min(b[0] for b in self._per_class_bands.values())
 
         self._worker = InferenceWorker(
-            weight_paths=weight_paths,
+            weight_paths=self._resolve_weight_paths(model_paths),
             min_conf=global_floor,
             max_conf=1.0,
             device=device,
@@ -312,6 +324,30 @@ class MainWindow(QMainWindow):
     def _on_worker_error(self, msg):
         QMessageBox.critical(self, "모델 로딩 오류", msg)
         self._status_label.setText(f"오류: {msg}")
+
+    def _reload_models(self, model_paths: list):
+        """app_front Option에서 검사 모델이 바뀌면 폴링을 멈추고 동기적으로 재로딩한다.
+
+        사용자가 확정한 방식 — 로딩하는 동안 app_back 응답이 잠시 멈춘다. 실패 시
+        (예: 파일 삭제됨) 기존 모델을 그대로 유지하고 경고만 띄운다. 성공/실패와 무관하게
+        _last_model_paths는 갱신한다 — 그래야 동일한(실패한) 값으로 매 폴링마다 재시도해
+        경고창이 반복적으로 뜨는 것을 막는다.
+        """
+        self._last_model_paths = list(model_paths)
+        self._db_poll_timer.stop()
+        self._status_label.setText("검사 모델 변경 감지 — 새 모델 로딩 중... (잠시 응답 없음)")
+        QApplication.processEvents()
+        try:
+            self._worker.set_weight_paths_and_reload(self._resolve_weight_paths(model_paths))
+            self._status_label.setText("[DB 연결됨] 새 검사 모델 로딩 완료. REVIEW 타일 대기 중...")
+        except Exception as e:
+            QMessageBox.warning(
+                self, "모델 재로딩 실패",
+                f"새 검사 모델을 불러오지 못해 기존 모델을 계속 사용합니다.\n{e}",
+            )
+            self._status_label.setText("[DB 연결됨] 모델 재로딩 실패 — 기존 모델로 계속 동작 중...")
+        finally:
+            self._db_poll_timer.start()
 
     # ── DB 폴링 ────────────────────────────────────────────────
 
@@ -341,6 +377,11 @@ class MainWindow(QMainWindow):
         if bands_changed and self._worker and new_bands:
             self._worker.min_conf = min(b[0] for b in new_bands.values())
 
+        # 검사 모델(model_paths) 변경 감지 → 폴링 정지 후 동기 재로딩
+        new_model_paths = json.loads(s.get("model_paths", "[]")) or list(_FALLBACK_MODEL_PATHS)
+        if new_model_paths != self._last_model_paths:
+            self._reload_models(new_model_paths)
+
         # ── 새 타일 조회 ─────────────────────────────────────────
         try:
             new_tiles = _db_fetch(after_id=self._last_shown_id)
@@ -348,15 +389,20 @@ class MainWindow(QMainWindow):
             self._status_label.setText(f"[DB 조회 오류] {e}")
             return
 
-        for tile_row in new_tiles:
+        # REVIEW 폭주 시 한 틱에 전부 동기 추론하면 UI가 통째로 멈추므로,
+        # 이번 틱은 앞쪽 MAX_TILES_PER_POLL_TICK건만 처리하고 나머지는 다음 틱(3초 후)으로 미룬다.
+        to_process = new_tiles[:MAX_TILES_PER_POLL_TICK]
+        backlog = len(new_tiles) - len(to_process)
+        for tile_row in to_process:
             self._last_shown_id = tile_row["id"]
             self._process_tile(tile_row)
 
         pending = sum(1 for t in self._tiles if t.verdict == "pending")
         total = len(self._tiles)
-        self._status_label.setText(
-            f"[DB 연결됨] 타일 {total}건 수신 | 미검토 {pending}건"
-        )
+        status = f"[DB 연결됨] 타일 {total}건 수신 | 미검토 {pending}건"
+        if backlog > 0:
+            status += f" | 처리 대기 {backlog}건(다음 갱신에 이어서 처리)"
+        self._status_label.setText(status)
 
     def _on_db_reset(self):
         """DB 초기화 감지 시 FilmStrip/상태 전체 리셋."""
