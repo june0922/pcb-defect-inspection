@@ -81,7 +81,7 @@ save_yolo_format()
                        ├─► weights/best_fold_2.pt
                        ├─► weights/best_fold_3.pt
                        ├─► weights/best_fold_4.pt
-                       └─► weights/best_fold_5.pt  ← app_front/app_back 사용
+                       └─► weights/best_fold_5.pt  ← app_front 사용
 
 [하이퍼파라미터]   scripts/run_tune.bat  → src/tune.py (Ray Tune)
                        └─► 최적 파라미터 → config.yaml 반영

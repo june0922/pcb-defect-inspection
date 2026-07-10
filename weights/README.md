@@ -40,8 +40,8 @@ python scripts/get_base_model.py
 5-Fold K-Fold 학습 완료 후 각 Fold의 `best.pt`를 이 폴더에 복사한 파일입니다.
 
 - **app_front**: `InspectionWorker`가 시작 시 5개 모델을 모두 로드하여 타일 추론에 사용
-- **app_back**: `InferenceWorker`가 시작 시 5개 모델을 모두 로드하여 REVIEW 타일 재추론에 사용
-- 두 앱 모두 5개 예측을 **WBF(Weighted Box Fusion)**로 병합하여 최종 결함 위치 결정
+- WBF(Weighted Box Fusion)로 여러 예측을 병합하여 최종 결함 위치 결정
+- (참고: `app_back`은 더 이상 자체 모델을 로딩하거나 재추론하지 않음)
 
 생성 방법:
 ```bash

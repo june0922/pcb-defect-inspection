@@ -3,9 +3,8 @@
 전처리, 학습, 하이퍼파라미터 튜닝, 환경 초기화를 간편하게 실행하는  
 배치 파일(`.bat`)과 쉘 스크립트(`.sh`) 모음입니다.
 
-> **앱 실행 스크립트**는 이 폴더가 아닌 `app_front/` 에 있습니다.  
-> `app_front/run_app.bat` (Windows) 또는 `app_front/run_app.sh` (macOS/Linux)를 실행하면  
-> **app_back + app_front가 순서대로 자동 시작**됩니다.
+> **앱 실행 스크립트**는 이 폴더가 아닌 각 앱 폴더(`app_front/`, `app_back/`)에 있습니다.  
+> 각각의 `run_app.bat` (Windows) 또는 `run_app.sh` (macOS/Linux)를 독립적으로 실행하세요.
 
 ---
 
