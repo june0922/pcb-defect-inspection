@@ -1,9 +1,9 @@
-# QGraphicsView 기반 고해상도 결함 뷰어 (줌/패닝/코너 브라켓/브러쉬 드로잉)
+# QGraphicsView 기반 고해상도 결함 뷰어 (줌/패닝/코너 브라켓)
 
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsItem
-from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
+from PyQt5.QtCore import Qt, QRectF, QPointF
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPainterPath,
     QImage, QPixmap, QFont, QFontMetricsF,
@@ -82,19 +82,10 @@ class VisionViewer(QGraphicsView):
     기능:
     - 마우스 휠: 포인터 중심 확대/축소 (scale factor 1.15)
     - 우클릭 드래그: 패닝
-    - 좌클릭 드래그: 브러쉬 드로잉 (흰색으로 이미지 마스킹)
     - 코너 브라켓 렌더링 (Cosmetic Pen → 줌 불변 두께 2~3px)
     - 신호등 배색 (confidence 기반)
     - Shift 홀드: 오버레이 숨김 토글
-    - 브러쉬 커서 프리뷰 (반투명 시안 원)
     """
-
-    image_edited = pyqtSignal(object)
-    brush_size_changed = pyqtSignal(int)
-    # 마우스 씬 좌표를 MainWindow에 전달 (GlobalView 커서 동기화용)
-    cursor_moved = pyqtSignal(float, float)   # scene_x, scene_y
-    cursor_left = pyqtSignal()                # 마우스가 뷰어를 떠남
-    restore_requested = pyqtSignal()          # 휠클릭: 브러쉬 수정 내용 복원 요청
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -110,7 +101,6 @@ class VisionViewer(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setBackgroundBrush(QBrush(QColor(30, 30, 30)))
-        self.setMouseTracking(True)  # 클릭 없이도 마우스 이동 추적
 
         self._pixmap_item = None
         self._overlay_items = []
@@ -123,15 +113,6 @@ class VisionViewer(QGraphicsView):
         self._panning = False
         self._pan_start = QPointF()
 
-        # 브러쉬 드로잉 상태
-        self._cv_image: np.ndarray | None = None
-        self._brush_size: int = 10
-        self._drawing: bool = False
-        self._last_draw_pt: tuple | None = None  # (x, y) 정수 튜플
-
-        # 브러쉬 커서 프리뷰 (반투명 시안 원)
-        self._cursor_item = None
-
     # ── Public API ─────────────────────────────────────────────
 
     def set_image(self, bgr_array: np.ndarray):
@@ -139,16 +120,11 @@ class VisionViewer(QGraphicsView):
 
         bytesPerLine을 명시하여 BGR→RGB 변환 시
         이미지 기울어짐/찌그러짐 방지.
-        전달받은 배열의 참조를 유지하여 브러쉬 드로잉 시 직접 수정합니다.
         """
         self._clear_overlay()
-        self._remove_cursor_item()
         if self._pixmap_item is not None:
             self._scene.removeItem(self._pixmap_item)
             self._pixmap_item = None
-
-        # 원본 ndarray 참조 저장 (브러쉬 드로잉 시 직접 수정 대상)
-        self._cv_image = bgr_array
 
         rgb = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -220,11 +196,10 @@ class VisionViewer(QGraphicsView):
         self.fitInView(rect, Qt.KeepAspectRatio)
 
     def zoom_to_detections(self, detections: list, pad_ratio: float = 1.0):
-        """모든 detections(REVIEW+FAIL, 이미 필터링된 리스트)의 bbox를 합친 union box로 줌.
+        """detections의 bbox를 합친 union box로 줌 (결함 1건만 넘기면 그 결함 기준 줌).
 
-        detections가 비어있으면(필터링 후 아무것도 안 남으면) 타일 전체가 보이도록
-        리셋한다 — 그러지 않으면 이전 타일에서 확대/패닝된 뷰가 그대로 남아 새 타일에서
-        아무 것도 안 보이는 것처럼 보인다.
+        detections가 비어있으면 타일 전체가 보이도록 리셋한다 — 그러지 않으면 이전
+        선택에서 확대/패닝된 뷰가 그대로 남아 새로 선택한 결함이 안 보일 수 있다.
         """
         if not detections:
             if self._pixmap_item is not None:
@@ -241,26 +216,14 @@ class VisionViewer(QGraphicsView):
         self._overlay_items = []
         self._highlighted_overlay_items = []
         self._other_overlay_items = []
-        self._cv_image = None
-        self._cursor_item = None
 
     def zoom(self, zoom_in: bool):
         """키보드 단축키용 줌인/줌아웃 (중앙 기준)."""
         factor = self._zoom_factor if zoom_in else (1.0 / self._zoom_factor)
         self._apply_zoom(factor)
 
-    def set_brush_size(self, size: int):
-        """외부에서 브러쉬 크기를 설정 (MainWindow 단축키용)."""
-        self._brush_size = max(1, min(100, size))
-
-    def get_brush_size(self) -> int:
-        """현재 브러쉬 크기 반환 (MainWindow 단축키용)."""
-        return self._brush_size
-
     def _apply_zoom(self, factor: float):
         """줌 배율 적용 시 설정된 최소/최대 한계를 벗어나지 않도록 제한합니다."""
-        self._remove_cursor_item()  # 줌 시 브러쉬 커서 잔상 방지
-
         current_zoom = self.transform().m11()
         new_zoom = current_zoom * factor
 
@@ -274,8 +237,6 @@ class VisionViewer(QGraphicsView):
 
     def pan(self, dx: int, dy: int):
         """키보드 단축키용 패닝."""
-        self._remove_cursor_item()  # 패닝 시 브러쉬 커서 잔상 방지
-
         h_bar = self.horizontalScrollBar()
         v_bar = self.verticalScrollBar()
         h_bar.setValue(h_bar.value() + dx)
@@ -319,69 +280,6 @@ class VisionViewer(QGraphicsView):
             items.append(item)
         return items
 
-    # ── Brush Cursor Preview ───────────────────────────────────
-
-    def _update_cursor_preview(self, scene_pt: QPointF):
-        """브러쉬 크기를 나타내는 반투명 원을 씬 좌표에 표시.
-
-        산업용 검사 소프트웨어에서 사용하는 시안(Cyan) 계열의
-        반투명 원으로, 흰색 배경과 어두운 배경 모두에서 잘 보입니다.
-        """
-        r = self._brush_size / 2.0
-        x, y = scene_pt.x(), scene_pt.y()
-
-        # orphan 아이템 감지: scene.clear() 후 참조가 남아있으면 폐기
-        if self._cursor_item is not None and self._cursor_item.scene() is None:
-            self._cursor_item = None
-
-        if self._cursor_item is not None:
-            # 위치만 갱신 (생성/삭제 비용 절약)
-            self._cursor_item.setRect(x - r, y - r, r * 2, r * 2)
-        else:
-            pen = QPen(QColor(0, 220, 255, 180), 1.5)
-            pen.setCosmetic(True)
-            brush = QBrush(QColor(0, 220, 255, 40))
-            self._cursor_item = self._scene.addEllipse(
-                x - r, y - r, r * 2, r * 2, pen, brush
-            )
-            self._cursor_item.setZValue(1000)  # 최상위 레이어
-
-    def _remove_cursor_item(self):
-        """브러쉬 커서 아이템 제거."""
-        if self._cursor_item is not None:
-            if self._cursor_item.scene() is not None:
-                self._scene.removeItem(self._cursor_item)
-            self._cursor_item = None
-
-    # ── Brush Drawing ──────────────────────────────────────────
-
-    def _refresh_pixmap(self):
-        """cv_image로부터 QPixmap을 재생성하여 배경만 교체.
-
-        오버레이(브라켓, 라벨)는 별도 아이템이므로 영향 없음.
-        """
-        if self._cv_image is None or self._pixmap_item is None:
-            return
-        rgb = cv2.cvtColor(self._cv_image, cv2.COLOR_BGR2RGB)
-        h, w, ch = rgb.shape
-        bytes_per_line = ch * w
-        qimg = QImage(rgb.data, w, h, bytes_per_line, QImage.Format_RGB888)
-        self._pixmap_item.setPixmap(QPixmap.fromImage(qimg.copy()))
-
-    def _scene_to_pixel(self, viewport_pos) -> tuple | None:
-        """뷰포트 좌표 → 이미지 픽셀 좌표(정수) 변환.
-
-        이미지 범위 밖이면 None 반환.
-        """
-        if self._cv_image is None:
-            return None
-        scene_pt = self.mapToScene(viewport_pos)
-        x, y = int(scene_pt.x()), int(scene_pt.y())
-        h, w = self._cv_image.shape[:2]
-        if 0 <= x < w and 0 <= y < h:
-            return (x, y)
-        return None
-
     # ── Internal ───────────────────────────────────────────────
 
     def _clear_overlay(self):
@@ -406,51 +304,18 @@ class VisionViewer(QGraphicsView):
         self._apply_zoom(factor)
 
     def mousePressEvent(self, event):
-        """좌클릭: 브러쉬 드로잉 시작 / 우클릭: 패닝 시작."""
-        if event.button() == Qt.LeftButton:
-            pt = self._scene_to_pixel(event.pos())
-            if pt is not None:
-                self._drawing = True
-                self._last_draw_pt = pt
-                # 클릭 지점에 점 하나 찍기 (드래그 없이 클릭만 해도 표시)
-                cv2.circle(
-                    self._cv_image, pt,
-                    self._brush_size // 2, (255, 255, 255), -1
-                )
-                self._refresh_pixmap()
-            event.accept()
-        elif event.button() == Qt.RightButton:
+        """우클릭: 패닝 시작."""
+        if event.button() == Qt.RightButton:
             self._panning = True
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
-            self._remove_cursor_item()  # 우클릭 패닝 시작 시 커서 프리뷰 숨김(잔상 방지)
-            event.accept()
-        elif event.button() == Qt.MiddleButton:
-            self.restore_requested.emit()
             event.accept()
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """드로잉 중: cv2.line으로 실시간 그리기 / 패닝 중: 뷰 이동 / 기본: 커서 프리뷰."""
-        scene_pt = self.mapToScene(event.pos())
-
-        if self._drawing:
-            pt = self._scene_to_pixel(event.pos())
-            if pt is not None and self._last_draw_pt is not None:
-                cv2.line(
-                    self._cv_image,
-                    self._last_draw_pt, pt,
-                    (255, 255, 255),
-                    self._brush_size,
-                )
-                self._last_draw_pt = pt
-                self._refresh_pixmap()
-            # 드로잉 중에도 커서 프리뷰 + 위치 시그널 발생
-            self._update_cursor_preview(scene_pt)
-            self.cursor_moved.emit(scene_pt.x(), scene_pt.y())
-            event.accept()
-        elif self._panning:
+        """패닝 중: 뷰 이동."""
+        if self._panning:
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
             self.horizontalScrollBar().setValue(
@@ -461,28 +326,13 @@ class VisionViewer(QGraphicsView):
             )
             event.accept()
         else:
-            # 기본 상태: 커서 프리뷰 표시 + 위치 시그널 발생
-            self._update_cursor_preview(scene_pt)
-            self.cursor_moved.emit(scene_pt.x(), scene_pt.y())
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """드로잉 완료 → image_edited 시그널 발생 / 패닝 종료."""
-        if event.button() == Qt.LeftButton and self._drawing:
-            self._drawing = False
-            self._last_draw_pt = None
-            if self._cv_image is not None:
-                self.image_edited.emit(self._cv_image)
-            event.accept()
-        elif event.button() == Qt.RightButton and self._panning:
+        """패닝 종료."""
+        if event.button() == Qt.RightButton and self._panning:
             self._panning = False
             self.setCursor(Qt.ArrowCursor)
             event.accept()
         else:
             super().mouseReleaseEvent(event)
-
-    def leaveEvent(self, event):
-        """마우스가 뷰어 영역을 벗어나면 커서 프리뷰 제거."""
-        self._remove_cursor_item()
-        self.cursor_left.emit()
-        super().leaveEvent(event)
