@@ -29,8 +29,10 @@ try:
     from db.database import (
         init_db as _db_init,
         fetch_review_defects as _db_fetch,
+        fetch_tile_defects as _db_fetch_tile_defects,
         get_settings as _db_get_settings,
         save_defect_verdict as _db_save_verdict,
+        update_defect_bbox as _db_update_bbox,
         get_tile_image as _db_get_tile_image,
     )
     _DB_ENABLED = True
@@ -58,7 +60,7 @@ class DefectEntry:
     """리뷰 대기 결함 1건 — 필름스트립 엔트리 1:1."""
     def __init__(self, defect_id: int, tile_id: int,
                  class_id: int, class_name: str, confidence: float,
-                 bbox_abs: list, ai_verdict: str):
+                 bbox_abs: list, ai_verdict: str, user_verdict: str | None = None):
         self.defect_id = defect_id
         self.tile_id = tile_id
         self.class_id = class_id
@@ -66,7 +68,7 @@ class DefectEntry:
         self.confidence = confidence
         self.bbox_abs = bbox_abs
         self.ai_verdict = ai_verdict
-        self.user_verdict = "pending"
+        self.user_verdict = user_verdict or "pending"
 
     def as_det_dict(self) -> dict:
         """VisionViewer.set_detections()가 기대하는 dict 형태로 변환."""
@@ -286,6 +288,9 @@ class MainWindow(QMainWindow):
         self._sc_cancel.setContext(Qt.ApplicationShortcut)
         self._sc_cancel.activated.connect(self._cancel_current_verdict)
 
+        # LocalView에서 bbox 드래그 편집(이동/리사이즈) 완료 시
+        self._local_view.bbox_edited.connect(self._on_bbox_edited)
+
     # ── 설정 파싱 ──────────────────────────────────────────────
 
     def _parse_bands(self, s: dict) -> dict:
@@ -400,12 +405,17 @@ class MainWindow(QMainWindow):
             confidence=defect_row["confidence"],
             bbox_abs=defect_row["bbox_abs"],
             ai_verdict=defect_row["verdict"],
+            user_verdict=defect_row.get("user_verdict"),
         )
         self._defects.append(entry)
         self._tile_defects.setdefault(entry.tile_id, []).append(entry.defect_id)
 
         thumb_bgr = _compute_crop(tile_img, entry.bbox_abs)
-        pixmap = self._make_thumbnail(thumb_bgr, BORDER_COLORS["pending"])
+        color = BORDER_COLORS.get(
+            entry.user_verdict if entry.user_verdict in BORDER_COLORS else "fail",
+            BORDER_COLORS["pending"]
+        )
+        pixmap = self._make_thumbnail(thumb_bgr, color, entry.user_verdict)
 
         item = QListWidgetItem()
         item.setIcon(QIcon(pixmap))
@@ -500,12 +510,16 @@ class MainWindow(QMainWindow):
         )
 
         # LocalView — 같은 타일의 형제 결함도 함께 그리되(참고용) 이 결함만 강조,
-        # 줌 대상은 이 결함 1건 (형제마다 위치가 다르므로 union이 아니라 자신 기준)
-        sibling_ids = self._tile_defects.get(entry.tile_id, [])
-        sibling_entries = [d for d in self._defects if d.defect_id in sibling_ids]
-        sibling_dets = [d.as_det_dict() for d in sibling_entries]
+        # 줌 대상은 이 결함 1건 (형제마다 위치가 다르므로 union이 아니라 자신 기준).
+        # 필름스트립은 REVIEW만 갖고 있으므로, FAIL 형제까지 보여주려면 DB에서
+        # 이 타일의 REVIEW+FAIL 전체를 직접 조회해야 한다(self._defects로는 부족).
+        try:
+            sibling_dets = _db_fetch_tile_defects(entry.tile_id)
+        except Exception as e:
+            print(f"[DB] 형제 결함 조회 실패 (tile_id={entry.tile_id}): {e}")
+            sibling_dets = [{"id": entry.defect_id, **entry.as_det_dict()}]
         highlight_index = next(
-            (i for i, d in enumerate(sibling_entries) if d.defect_id == entry.defect_id), -1
+            (i for i, d in enumerate(sibling_dets) if d["id"] == entry.defect_id), -1
         )
 
         self._local_view.set_image(tile_img)
@@ -517,6 +531,19 @@ class MainWindow(QMainWindow):
         self._local_view.zoom_to_detections([entry.as_det_dict()], pad_ratio=1.0)
 
         self._update_status()
+
+    def _on_bbox_edited(self, new_bbox_abs: list):
+        """LocalView에서 드래그 편집(이동/리사이즈)이 끝났을 때 호출 — DB에 1회 저장."""
+        if not (0 <= self._current_index < len(self._defects)):
+            return
+        entry = self._defects[self._current_index]
+        entry.bbox_abs = new_bbox_abs
+        if _DB_ENABLED:
+            try:
+                _db_update_bbox(entry.defect_id, new_bbox_abs)
+            except Exception as e:
+                print(f"[DB] bbox 저장 실패 (defect_id={entry.defect_id}): {e}")
+        self._update_thumbnail(self._current_index)
 
     def _update_status(self):
         reviewed = sum(1 for d in self._defects if d.user_verdict != "pending")

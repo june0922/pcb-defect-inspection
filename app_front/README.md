@@ -10,8 +10,8 @@ PCB 이미지를 설정 가능한 크기(기본 640×640)의 타일로 분할하
 ```
 app_front/
 ├── run.py                    # 진입점 (다크 테마 적용 후 MainWindow 실행)
-├── run_app.bat               # Windows: app_back + app_front 동시 실행 스크립트
-├── run_app.sh                # macOS/Linux: app_back + app_front 동시 실행 스크립트
+├── run_app.bat               # Windows: app_front 단독 실행 스크립트
+├── run_app.sh                # macOS/Linux: app_front 단독 실행 스크립트
 ├── main_ui.py                # 메인 윈도우 (MainWindow, SettingsDialog, DefaultsEditDialog, DatabaseDialog)
 ├── inspection_worker.py      # 타일 검사 워커 스레드 (InspectionWorker)
 ├── global_view.py            # PCB 전체 뷰어 + 현재 검사 위치 스캔박스 (GlobalView)
@@ -28,16 +28,18 @@ app_front/
 ## 실행 방법
 
 ```bash
-# 단독 실행 (app_back을 따로 켠 상태에서)
-cd app_front
-python run.py
-
-# app_back과 동시 실행 (권장)
 # Windows
 app_front\run_app.bat
 # macOS/Linux
 bash app_front/run_app.sh
+
+# 또는 직접 실행
+cd app_front
+python run.py
 ```
+
+app_front와 app_back(`app_back/run_app.bat` 또는 `.sh`)은 각자 독립적으로 실행되는
+별개의 프로그램입니다 — 어느 쪽을 먼저 켜도, 하나만 켜도 정상 동작합니다.
 
 ---
 

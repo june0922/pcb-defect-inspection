@@ -9,7 +9,7 @@ else
 fi
 
 echo "============================================================"
-echo " DeepPCB Inspection Monitor (app_front)"
+echo " DeepPCB Review Station (app_back)"
 echo "============================================================"
 echo ""
-python app_front/run.py
+python app_back/run.py
