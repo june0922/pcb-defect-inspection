@@ -902,6 +902,9 @@ class MainWindow(QMainWindow):
         tile_size = self._worker.tile_size
         stride = InspectionWorker._compute_stride(tile_size, self._worker.overlap_pct)
         self._global_view.set_scan_box(col * stride, row * stride, tile_size)
+        if verdict == "FAIL":
+            # 완전 FAIL 판정 타일은 스캔박스(일시적)와 별개로 영구 표식을 남긴다
+            self._global_view.add_fail_marker(col * stride, row * stride, tile_size)
 
         # LocalView 업데이트 (이진화 타일 표시)
         self._local_view.set_image(tile_bgr)
