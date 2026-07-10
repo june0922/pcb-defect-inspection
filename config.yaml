@@ -24,16 +24,16 @@ split:
   val: 0.2
 train:
   imgsz: 1280
-  batch: 16
-  epochs: 600
+  batch: 32
+  epochs: 500
   model: weights/yolo26s.pt
-  patience: 100
+  patience: 500
   device: 0  # 0=GPU, cpu=CPU. Colab/서버는 0, 로컬 CPU 전용 환경은 cpu
   cache: ram
 train_tune:
   imgsz: 1280
-  batch: 16
-  epochs: 600
+  batch: 32
+  epochs: 500
   model: weights/yolo26s.pt
   patience: 100
   device: 0
