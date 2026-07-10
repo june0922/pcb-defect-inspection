@@ -5,11 +5,13 @@ from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene
 from PyQt5.QtCore import Qt, QRectF, QTimer
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor,
-    QImage, QPixmap,
+    QImage, QPixmap, QPainterPath,
 )
 
 SCAN_BOX_COLOR = QColor(255, 40, 40, 230)  # 빨간색 테두리 — 현재 검사 위치
 SCAN_BOX_FILL_COLOR = QColor(255, 40, 40, 64)  # 반투명 빨간색 채우기 (기존 썸네일 오버레이 alpha=64 관례와 동일)
+FAIL_MARKER_COLOR = QColor(255, 20, 20, 255)  # 완전 불투명 빨강 — 여러 개 누적돼도 가독성 유지
+_FAIL_MARKER_RADIUS_RATIO = 0.25  # 타일 크기 대비 X 마커 반경 비율
 
 
 class GlobalView(QGraphicsView):
@@ -32,6 +34,7 @@ class GlobalView(QGraphicsView):
 
         self._pixmap_item = None
         self._scan_box_item = None  # QGraphicsRectItem, 현재 검사 위치
+        self._fail_marker_items = []  # 완전 FAIL 타일 위치에 남는 영구 X 마커 목록
 
     # ------------------------------------------------------------------
     # Public API
@@ -45,6 +48,7 @@ class GlobalView(QGraphicsView):
         self._scene.clear()
         self._pixmap_item = None
         self._scan_box_item = None
+        self._fail_marker_items = []  # 새 이미지(새 좌표계)이므로 이전 마커는 폐기
 
         rgb = cv2.cvtColor(bgr_array, cv2.COLOR_BGR2RGB)
         h, w, ch = rgb.shape
@@ -87,11 +91,36 @@ class GlobalView(QGraphicsView):
             self._scene.removeItem(self._scan_box_item)
             self._scan_box_item = None
 
+    def add_fail_marker(self, x: float, y: float, size: float):
+        """완전 FAIL 판정 타일의 위치 중앙에 영구적인 빨간 X 표식을 추가한다.
+
+        set_scan_box()와 동일한 좌표계(x, y = 타일 좌상단 픽셀 좌표, size = 타일 한 변의
+        길이)를 쓴다. 스캔박스는 현재 검사 위치만 일시적으로 표시하지만, 이 마커는
+        set_image()/clear_all()이 호출되기 전까지 계속 남는다.
+        """
+        cx, cy = x + size / 2.0, y + size / 2.0
+        r = size * _FAIL_MARKER_RADIUS_RATIO
+
+        pen = QPen(FAIL_MARKER_COLOR)
+        pen.setWidthF(3)
+        pen.setCosmetic(True)
+
+        path = QPainterPath()
+        path.moveTo(cx - r, cy - r)
+        path.lineTo(cx + r, cy + r)
+        path.moveTo(cx - r, cy + r)
+        path.lineTo(cx + r, cy - r)
+
+        item = self._scene.addPath(path, pen)
+        item.setZValue(5)  # 배경(0)보다 위, 스캔박스(10)보다 아래
+        self._fail_marker_items.append(item)
+
     def clear_all(self):
         """모든 아이템 초기화."""
         self._scene.clear()
         self._pixmap_item = None
         self._scan_box_item = None
+        self._fail_marker_items = []
 
     # ------------------------------------------------------------------
     # Qt overrides

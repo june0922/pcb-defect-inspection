@@ -39,7 +39,6 @@ _sys.path.insert(0, str(_PROJECT_ROOT))
 try:
     from db.database import (
         init_db as _db_init,
-        upsert_tile as _db_upsert,
         clear_all as _db_clear,
         get_settings as _db_get_settings,
         update_settings as _db_update_settings,
@@ -903,6 +902,9 @@ class MainWindow(QMainWindow):
         tile_size = self._worker.tile_size
         stride = InspectionWorker._compute_stride(tile_size, self._worker.overlap_pct)
         self._global_view.set_scan_box(col * stride, row * stride, tile_size)
+        if verdict == "FAIL":
+            # 완전 FAIL 판정 타일은 스캔박스(일시적)와 별개로 영구 표식을 남긴다
+            self._global_view.add_fail_marker(col * stride, row * stride, tile_size)
 
         # LocalView 업데이트 (이진화 타일 표시)
         self._local_view.set_image(tile_bgr)
@@ -941,13 +943,6 @@ class MainWindow(QMainWindow):
             alert_val = alert_val.lower() == "true"
         if verdict == "FAIL" and alert_val:
             self._play_alert_sound()
-
-        # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과 (같은 위치는 최신으로 교체)
-        if _DB_ENABLED:
-            try:
-                _db_upsert(tile_bgr, verdict, result["image_path"], row, col)
-            except Exception as e:
-                print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
 
     @pyqtSlot(int, int)
     def _on_progress(self, current, total):

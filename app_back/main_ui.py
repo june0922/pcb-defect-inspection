@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QStatusBar, QLabel, QMessageBox, QProgressBar,
     QApplication, QShortcut,
 )
-from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer
+from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer, QEvent
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence,
 )
@@ -44,7 +44,7 @@ BORDER_WIDTH = 3
 DEBOUNCE_SEC = 0.10
 # 한 번의 폴링(3초)에서 처리할 최대 타일 수 — REVIEW가 폭주해 한 번에 수십~수백 건이
 # 도착해도 전부 동기 추론하면 UI가 통째로 멈추므로, 초과분은 다음 폴링으로 미뤄 분산한다
-MAX_TILES_PER_POLL_TICK = 10
+MAX_TILES_PER_POLL_TICK = 3
 _FALLBACK_MODEL_PATHS = [f"weights/best_fold_{i}.pt" for i in range(1, 6)]
 
 BORDER_COLORS = {
@@ -415,15 +415,22 @@ class MainWindow(QMainWindow):
         self._status_label.setText("DB가 초기화되었습니다. 새 검사를 기다리는 중...")
 
     def _filter_by_active_bands(self, detections: list, crops: list) -> tuple:
-        """활성 클래스 목록(self._per_class_bands)에 없는 이름의 검출/크롭을 제외.
+        """활성 클래스 목록에 없거나 PASS 등급(review_min 미만)인 검출/크롭을 제외.
 
-        detections와 crops는 1:1 매핑이므로 함께 필터링해 인덱스를 맞춘다.
+        detections와 crops는 1:1 매핑이므로 함께 필터링해 인덱스를 맞춘다. 여기서 걸러내면
+        남는 것은 REVIEW 등급 이상(review_min 이상)뿐이며, LocalView는 노랑/빨강만 그리게
+        된다 — PASS(회색) 등급은 app_back의 리뷰 대상이 아니다.
         """
         filtered_dets, filtered_crops = [], []
         for det, crop in zip(detections, crops):
-            if det["class_name"] in self._per_class_bands:
-                filtered_dets.append(det)
-                filtered_crops.append(crop)
+            band = self._per_class_bands.get(det["class_name"])
+            if band is None:
+                continue
+            r_min, _r_max = band
+            if det["confidence"] < r_min:
+                continue
+            filtered_dets.append(det)
+            filtered_crops.append(crop)
         return filtered_dets, filtered_crops
 
     def _process_tile(self, tile_row: dict):
@@ -544,16 +551,14 @@ class MainWindow(QMainWindow):
             self._global_scene.sceneRect(), Qt.KeepAspectRatio
         )
 
-        # LocalView — 결함 확대뷰 (첫 번째 결함 위치로 줌)
+        # LocalView — 결함 확대뷰 (모든 REVIEW/FAIL 결함을 합친 영역으로 줌)
         self._local_view.set_image(entry.img_bgr)
         self._local_view.set_detections(
             entry.detections,
             highlight_index=0 if entry.detections else -1,
             per_class_bands=self._per_class_bands,
         )
-        if entry.detections:
-            x1, y1, x2, y2 = entry.detections[0]["bbox_abs"]
-            self._local_view.zoom_to_rect(x1, y1, x2, y2, pad_ratio=1.0)
+        self._local_view.zoom_to_detections(entry.detections, pad_ratio=1.0)
 
         self._update_status()
 
@@ -582,6 +587,16 @@ class MainWindow(QMainWindow):
             self._local_view.set_overlay_visible(True)
         else:
             super().keyReleaseEvent(event)
+
+    def changeEvent(self, event):
+        """창이 비활성화(알트탭 등)되면 Shift 홀드로 숨겨진 오버레이를 강제 복원한다.
+
+        Shift를 누른 채 포커스를 잃으면 keyReleaseEvent가 전달되지 않아 나머지 결함
+        박스가 계속 숨겨진 채 고착될 수 있다.
+        """
+        if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
+            self._local_view.set_overlay_visible(True)
+        super().changeEvent(event)
 
     def _verdict_current(self, verdict: str):
         now = time.time()

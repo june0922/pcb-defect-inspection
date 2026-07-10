@@ -1,6 +1,7 @@
 # SQLite 직접 접근 헬퍼 — 타일 이미지, 판정 결과, 앱 설정을 관리
 import json
 import sqlite3
+import threading
 import uuid
 from pathlib import Path
 
@@ -31,11 +32,23 @@ def _bootstrap_settings() -> dict[str, str]:
     return settings
 
 
-def _connect() -> sqlite3.Connection:
-    conn = sqlite3.connect(str(DB_PATH))
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=ON")
-    return conn
+# 모듈 전역 영구 커넥션 — 최초 호출 시 1회만 생성해 재사용한다. 기존에는 함수 호출마다
+# 매번 새 커넥션을 열고 PRAGMA를 재실행해, app_front가 타일을 저장할 때마다(REVIEW 폭주
+# 시 초당 여러 건) 이 비용이 누적되어 UI 렉의 핵심 원인이었다. check_same_thread=False로
+# 열어 InspectionWorker 백그라운드 스레드와 UI 스레드가 동일 커넥션을 공유하며, 실제 동시
+# 접근 안전은 _LOCK이 보장한다. get_db_stats()가 내부적으로 count_by_verdict()를 호출해
+# 같은 스레드가 락을 중첩 획득하므로 일반 Lock이 아닌 RLock을 쓴다(그렇지 않으면 데드락).
+_CONN: sqlite3.Connection | None = None
+_LOCK = threading.RLock()
+
+
+def _get_connection() -> sqlite3.Connection:
+    global _CONN
+    if _CONN is None:
+        _CONN = sqlite3.connect(str(DB_PATH), check_same_thread=False)
+        _CONN.execute("PRAGMA journal_mode=WAL")
+        _CONN.execute("PRAGMA foreign_keys=ON")
+    return _CONN
 
 
 def init_db() -> None:
@@ -45,7 +58,7 @@ def init_db() -> None:
     - settings 테이블: 신규 생성 + 기본값 삽입
     기존 DB가 없으면 처음부터 생성.
     """
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         # ── tiles 테이블 ──────────────────────────────────────────
         existing = {row[1] for row in conn.execute("PRAGMA table_info(tiles)")}
 
@@ -119,7 +132,7 @@ def upsert_tile(
     """타일을 DB에 삽입하거나 (같은 위치이면) 최신 결과로 교체."""
     _, buf = cv2.imencode(".png", tile_bgr)
     blob = buf.tobytes()
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         conn.execute(
             """
             INSERT INTO tiles(tile_image, verdict, image_path, grid_row, grid_col, updated_at)
@@ -136,7 +149,7 @@ def upsert_tile(
 
 def fetch_review_tiles(after_id: int = 0) -> list[dict]:
     """verdict='REVIEW'인 타일을 after_id 이후 순서로 조회."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         rows = conn.execute(
             "SELECT id, tile_image FROM tiles WHERE verdict='REVIEW' AND id > ? ORDER BY id ASC",
             (after_id,),
@@ -146,7 +159,7 @@ def fetch_review_tiles(after_id: int = 0) -> list[dict]:
 
 def get_tile_image(tile_id: int) -> bytes | None:
     """단일 타일의 원본 PNG BLOB 조회. 없으면 None."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         row = conn.execute(
             "SELECT tile_image FROM tiles WHERE id=?",
             (tile_id,),
@@ -156,7 +169,7 @@ def get_tile_image(tile_id: int) -> bytes | None:
 
 def count_by_verdict() -> dict:
     """판정별 타일 수 집계."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         rows = conn.execute(
             "SELECT verdict, COUNT(*) FROM tiles GROUP BY verdict"
         ).fetchall()
@@ -165,7 +178,7 @@ def count_by_verdict() -> dict:
 
 def save_user_verdict(tile_id: int, user_verdict: str) -> None:
     """app_back 작업자 판정을 tiles 테이블에 저장."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         conn.execute(
             "UPDATE tiles SET user_verdict=?, updated_at=datetime('now') WHERE id=?",
             (user_verdict, tile_id),
@@ -175,7 +188,7 @@ def save_user_verdict(tile_id: int, user_verdict: str) -> None:
 def clear_all() -> None:
     """모든 타일 삭제 + AUTO_INCREMENT 리셋 + db_session_id 갱신."""
     new_session = str(uuid.uuid4())
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         conn.execute("DELETE FROM tiles")
         conn.execute("DELETE FROM sqlite_sequence WHERE name='tiles'")
         conn.execute(
@@ -203,14 +216,14 @@ def get_db_stats() -> dict:
 
 def get_settings() -> dict:
     """settings 테이블 전체를 {key: value} dict로 반환."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         rows = conn.execute("SELECT key, value FROM settings").fetchall()
     return {r[0]: r[1] for r in rows}
 
 
 def update_setting(key: str, value: str) -> None:
     """단일 설정 값 업데이트."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         conn.execute(
             "INSERT INTO settings(key, value) VALUES(?, ?)"
             " ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
@@ -220,7 +233,7 @@ def update_setting(key: str, value: str) -> None:
 
 def update_settings(settings: dict) -> None:
     """여러 설정 값 일괄 업데이트."""
-    with _connect() as conn:
+    with _LOCK, _get_connection() as conn:
         for key, value in settings.items():
             conn.execute(
                 "INSERT INTO settings(key, value) VALUES(?, ?)"
