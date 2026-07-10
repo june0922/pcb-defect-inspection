@@ -254,6 +254,7 @@ class VisionViewer(QGraphicsView):
             item.setVisible(True)
         for item in self._other_overlay_items:
             item.setVisible(visible)
+        self.viewport().update()
 
     def zoom_to_rect(self, x1, y1, x2, y2, pad_ratio=0.5):
         """특정 영역으로 줌. 패딩을 추가하여 주변 컨텍스트를 노출."""
