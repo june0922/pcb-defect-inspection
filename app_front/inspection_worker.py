@@ -193,12 +193,17 @@ class InspectionWorker(QThread):
                 # Max confidence
                 max_conf = max((d["confidence"] for d in detections), default=0.0)
 
-                # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과 (같은 위치는 최신으로 교체).
+                # DB 기록 — 타일 이미지(PNG BLOB) + REVIEW/FAIL 등급 결함(개별 등급 포함).
                 # 이 백그라운드 스레드에서 수행해 UI 스레드는 더 이상 이 비용을 부담하지 않는다.
                 # 타일 1건 저장 실패가 전체 검사를 중단시키면 안 되므로 로그만 남기고 계속 진행한다.
                 if _DB_ENABLED:
                     try:
-                        _db_upsert(tile_bgr, verdict, img_path, row, col)
+                        dets_for_db = [
+                            {**d, "verdict": self._classify_detection_verdict(d)}
+                            for d in detections
+                        ]
+                        dets_for_db = [d for d in dets_for_db if d["verdict"] != "PASS"]
+                        _db_upsert(tile_bgr, verdict, img_path, row, col, dets_for_db)
                     except Exception as e:
                         print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
 
@@ -366,6 +371,16 @@ class InspectionWorker(QThread):
             })
 
         return detections
+
+    def _classify_detection_verdict(self, det: dict) -> str:
+        """개별 결함 1건의 클래스별 REVIEW 밴드 기준 등급 (REVIEW/FAIL/PASS)."""
+        r_min, r_max = self.per_class_bands.get(det["class_name"], (self._global_floor, 0.70))
+        conf = det["confidence"]
+        if conf > r_max:
+            return "FAIL"
+        elif conf >= r_min:
+            return "REVIEW"
+        return "PASS"
 
     def _classify_verdict(self, detections: list) -> str:
         """클래스별 REVIEW 밴드 기준으로 타일 판정.
