@@ -67,7 +67,7 @@ UNIQUE(image_path, grid_row, grid_col)
 INDEX(tile_id), INDEX(verdict, id)
 ```
 
-app_back의 필름스트립 엔트리는 이 테이블의 행 1개와 1:1 대응합니다. 같은 `tile_id`를 공유하는 여러 결함(형제 결함)은 서로 독립적으로 작업자 판정이 매겨집니다.
+app_back의 필름스트립 엔트리는 `verdict='REVIEW'`인 행 1개와 1:1 대응합니다(사람이 검토해야 할 대상은 REVIEW뿐이며, FAIL은 확정 결함이라 필름스트립에 올리지 않습니다). 다만 LocalView는 같은 `tile_id`의 REVIEW+FAIL 형제를 전부 함께 그립니다(`fetch_tile_defects` 사용). 같은 `tile_id`를 공유하는 여러 결함(형제 결함)은 서로 독립적으로 작업자 판정이 매겨지며, bbox 좌표도 독립적으로 편집 가능합니다.
 
 ---
 
@@ -132,10 +132,12 @@ app_back: _poll_db() (3초마다)
 |------|----------|------|
 | `init_db` | `() → None` | 테이블 생성 또는 구버전 스키마 자동 마이그레이션, 기본값 삽입 |
 | `upsert_tile` | `(tile_bgr, verdict, image_path, grid_row, grid_col, detections) → None` | 타일 삽입/교체 + 그 타일의 defects를 전부 지우고 재삽입 (REVIEW/FAIL 등급만) |
-| `fetch_review_defects` | `(after_id=0) → list[dict]` | `verdict IN ('REVIEW','FAIL')`인 결함을 `after_id` 이후 ID순으로 반환 (tile_id 포함) |
+| `fetch_review_defects` | `(after_id=0) → list[dict]` | `verdict='REVIEW'`인 결함을 `after_id` 이후 ID순으로 반환 (필름스트립용, user_verdict 포함) |
+| `fetch_tile_defects` | `(tile_id) → list[dict]` | 특정 타일의 REVIEW+FAIL 결함 전체 조회 (LocalView가 형제 결함을 함께 그릴 때 사용) |
 | `get_tile_image` | `(tile_id) → bytes or None` | 단일 타일의 원본 PNG BLOB 조회 |
 | `count_by_verdict` | `() → dict` | `{verdict: count}` 형태로 판정별 타일 수 집계 |
 | `save_defect_verdict` | `(defect_id, user_verdict) → None` | 결함 1건의 작업자 판정 저장 (`user_verdict` + `updated_at` 업데이트) |
+| `update_defect_bbox` | `(defect_id, bbox_abs) → None` | 결함 1건의 bbox 좌표 저장 (LocalView 드래그 편집 결과) |
 | `clear_all` | `() → None` | defects/tiles 전체 삭제 + AUTOINCREMENT 리셋 + db_session_id 갱신 |
 | `get_db_stats` | `() → dict` | 판정별 카운트 + `_total` + `_db_bytes` (파일 크기) |
 | `get_settings` | `() → dict` | settings 테이블 전체를 `{key: value}` dict로 반환 |
