@@ -1,6 +1,7 @@
 # PCB 타일 단위 자동 검사 워커 (서펜타인 스캔 + 5K-Fold WBF 앙상블)
 
 import math
+import sys
 import time
 import threading
 from pathlib import Path
@@ -16,6 +17,22 @@ _WBF_IOU_THR = 0.45
 # LocalView 초록(PASS 수준) 박스가 표시될 수 있는 confidence 하한 — 클래스별 review_min과
 # 무관하게 고정. 이보다 낮은 confidence는 모델이 애초에 반환하지 않는다(model.predict의 conf 하한).
 _GREEN_FLOOR = 0.01
+
+# ── 프로젝트 루트 (db 모듈 import용) ────────────────
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+# ── DB 연동 (실패해도 검사는 계속 진행) ──────────────
+# PNG 인코딩 + DB 저장을 이 워커의 백그라운드 스레드에서 직접 수행한다 — 예전에는
+# UI 스레드(main_ui.py의 tile_inspected 핸들러)가 매 타일마다 동기로 이 작업을 했는데,
+# 그 인코딩+커밋 비용이 UI를 막아 REVIEW 타일이 몰릴 때 렉의 원인이 되었다.
+try:
+    from db.database import upsert_tile as _db_upsert
+    _DB_ENABLED = True
+except Exception as _e:
+    print(f"[DB] 연동 비활성화: {_e}")
+    _DB_ENABLED = False
 
 
 class InspectionWorker(QThread):
@@ -175,6 +192,15 @@ class InspectionWorker(QThread):
 
                 # Max confidence
                 max_conf = max((d["confidence"] for d in detections), default=0.0)
+
+                # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과 (같은 위치는 최신으로 교체).
+                # 이 백그라운드 스레드에서 수행해 UI 스레드는 더 이상 이 비용을 부담하지 않는다.
+                # 타일 1건 저장 실패가 전체 검사를 중단시키면 안 되므로 로그만 남기고 계속 진행한다.
+                if _DB_ENABLED:
+                    try:
+                        _db_upsert(tile_bgr, verdict, img_path, row, col)
+                    except Exception as e:
+                        print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
 
                 # Thumbnail
                 thumb = self._create_thumbnail(tile_bgr)

@@ -39,7 +39,6 @@ _sys.path.insert(0, str(_PROJECT_ROOT))
 try:
     from db.database import (
         init_db as _db_init,
-        upsert_tile as _db_upsert,
         clear_all as _db_clear,
         get_settings as _db_get_settings,
         update_settings as _db_update_settings,
@@ -941,13 +940,6 @@ class MainWindow(QMainWindow):
             alert_val = alert_val.lower() == "true"
         if verdict == "FAIL" and alert_val:
             self._play_alert_sound()
-
-        # DB 기록 — 타일 이미지(PNG BLOB) + 판정 결과 (같은 위치는 최신으로 교체)
-        if _DB_ENABLED:
-            try:
-                _db_upsert(tile_bgr, verdict, result["image_path"], row, col)
-            except Exception as e:
-                print(f"[DB] 타일 기록 실패 (row={row},col={col}): {e}")
 
     @pyqtSlot(int, int)
     def _on_progress(self, current, total):
