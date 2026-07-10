@@ -219,6 +219,21 @@ class VisionViewer(QGraphicsView):
         )
         self.fitInView(rect, Qt.KeepAspectRatio)
 
+    def zoom_to_detections(self, detections: list, pad_ratio: float = 1.0):
+        """모든 detections(REVIEW+FAIL, 이미 필터링된 리스트)의 bbox를 합친 union box로 줌.
+
+        detections가 비어있으면(필터링 후 아무것도 안 남으면) 타일 전체가 보이도록
+        리셋한다 — 그러지 않으면 이전 타일에서 확대/패닝된 뷰가 그대로 남아 새 타일에서
+        아무 것도 안 보이는 것처럼 보인다.
+        """
+        if not detections:
+            if self._pixmap_item is not None:
+                self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+            return
+
+        xs1, ys1, xs2, ys2 = zip(*(d["bbox_abs"] for d in detections))
+        self.zoom_to_rect(min(xs1), min(ys1), max(xs2), max(ys2), pad_ratio=pad_ratio)
+
     def clear_all(self):
         """Scene 전체 초기화."""
         self._scene.clear()

@@ -415,15 +415,22 @@ class MainWindow(QMainWindow):
         self._status_label.setText("DB가 초기화되었습니다. 새 검사를 기다리는 중...")
 
     def _filter_by_active_bands(self, detections: list, crops: list) -> tuple:
-        """활성 클래스 목록(self._per_class_bands)에 없는 이름의 검출/크롭을 제외.
+        """활성 클래스 목록에 없거나 PASS 등급(review_min 미만)인 검출/크롭을 제외.
 
-        detections와 crops는 1:1 매핑이므로 함께 필터링해 인덱스를 맞춘다.
+        detections와 crops는 1:1 매핑이므로 함께 필터링해 인덱스를 맞춘다. 여기서 걸러내면
+        남는 것은 REVIEW 등급 이상(review_min 이상)뿐이며, LocalView는 노랑/빨강만 그리게
+        된다 — PASS(회색) 등급은 app_back의 리뷰 대상이 아니다.
         """
         filtered_dets, filtered_crops = [], []
         for det, crop in zip(detections, crops):
-            if det["class_name"] in self._per_class_bands:
-                filtered_dets.append(det)
-                filtered_crops.append(crop)
+            band = self._per_class_bands.get(det["class_name"])
+            if band is None:
+                continue
+            r_min, _r_max = band
+            if det["confidence"] < r_min:
+                continue
+            filtered_dets.append(det)
+            filtered_crops.append(crop)
         return filtered_dets, filtered_crops
 
     def _process_tile(self, tile_row: dict):
@@ -544,16 +551,14 @@ class MainWindow(QMainWindow):
             self._global_scene.sceneRect(), Qt.KeepAspectRatio
         )
 
-        # LocalView — 결함 확대뷰 (첫 번째 결함 위치로 줌)
+        # LocalView — 결함 확대뷰 (모든 REVIEW/FAIL 결함을 합친 영역으로 줌)
         self._local_view.set_image(entry.img_bgr)
         self._local_view.set_detections(
             entry.detections,
             highlight_index=0 if entry.detections else -1,
             per_class_bands=self._per_class_bands,
         )
-        if entry.detections:
-            x1, y1, x2, y2 = entry.detections[0]["bbox_abs"]
-            self._local_view.zoom_to_rect(x1, y1, x2, y2, pad_ratio=1.0)
+        self._local_view.zoom_to_detections(entry.detections, pad_ratio=1.0)
 
         self._update_status()
 
