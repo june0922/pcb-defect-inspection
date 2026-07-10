@@ -121,15 +121,15 @@ bash app_front/run_app.sh
   └─ 활성 클래스 목록에 없는 검출만 제거 (review_min 미만도 남겨 LocalView에서 초록으로 표시)
      │
      ▼
-[판정]  _classify_verdict(detections)
-  ├─ 검출 없음                    → PASS
-  ├─ conf > 해당 클래스 review_max → FAIL (즉시 확정)
-  ├─ conf ≥ 해당 클래스 review_min → REVIEW 후보
-  └─ 우선순위: FAIL > REVIEW > PASS
+[판정]  _classify_verdict(detections) / _classify_detection_verdict(det)
+  ├─ 타일 전체 요약(verdict): 검출 없음 → PASS, FAIL > REVIEW > PASS 우선순위
+  └─ 결함 1건씩(_classify_detection_verdict): 개별 conf 기준 REVIEW/FAIL/PASS 판정
      │
      ▼
-[DB 저장]  upsert_tile(tile_bgr, verdict, image_path, row, col)
-  └─ UNIQUE(image_path, grid_row, grid_col) — 동일 위치 재처리 시 최신값으로 교체
+[DB 저장]  upsert_tile(tile_bgr, verdict, image_path, row, col, detections)
+  ├─ tiles: UNIQUE(image_path, grid_row, grid_col) — 동일 위치 재처리 시 최신값으로 교체
+  └─ defects: REVIEW/FAIL 등급 결함만 bbox/class/confidence/개별 verdict와 함께 저장
+     (PASS 등급은 저장하지 않음 — app_back이 재추론 없이 그대로 읽어 표시)
      │
      ▼
 [UI 업데이트]

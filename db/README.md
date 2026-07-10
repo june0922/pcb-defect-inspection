@@ -19,7 +19,7 @@ db/
 
 ### tiles 테이블
 
-타일별 AI 판정 결과와 작업자 최종 판정을 저장합니다.
+타일 PNG 이미지와 위치 메타만 보관합니다. 결함별 판정은 아래 `defects` 테이블로 분리되어 있습니다.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -29,11 +29,10 @@ db/
 ├──────────────┼───────────┼──────────────────────────────────────────┤
 │ id           │ INTEGER   │ PK, AUTOINCREMENT                         │
 │ tile_image   │ BLOB      │ PNG 인코딩된 타일 이미지 (크기는 타일크기 설정에 따름)│
-│ verdict      │ TEXT      │ AI 판정: PASS / FAIL / REVIEW             │
+│ verdict      │ TEXT      │ 타일 전체 AI 판정 요약: PASS / FAIL / REVIEW│
 │ image_path   │ TEXT      │ 원본 이미지 파일 절대 경로                 │
 │ grid_row     │ INTEGER   │ 타일 그리드 행 번호 (0-based)             │
 │ grid_col     │ INTEGER   │ 타일 그리드 열 번호 (0-based)             │
-│ user_verdict │ TEXT      │ 작업자 판정: pass / 1~6 / NULL(미판정)    │
 │ inspected_at │ TEXT      │ 검사 시각 (datetime, 자동 삽입)            │
 │ updated_at   │ TEXT      │ 최종 갱신 시각 (datetime, 자동 삽입)       │
 └──────────────┴───────────┴──────────────────────────────────────────┘
@@ -42,7 +41,33 @@ UNIQUE(image_path, grid_row, grid_col)
 
 **UNIQUE 제약 & Upsert 동작**  
 동일한 `(image_path, grid_row, grid_col)` 조합이 다시 삽입되면 기존 행을 최신 결과로 교체합니다.  
-재처리(같은 폴더 재오픈) 시 중복 없이 `tile_image`, `verdict`, `updated_at`만 갱신하고 `user_verdict`는 `NULL`로 초기화됩니다.
+재처리(같은 폴더 재오픈) 시 `tile_image`, `verdict`, `updated_at`이 갱신되고, 그 타일에 속한 기존 `defects` 행은 전부 삭제된 뒤 새 결함으로 재삽입됩니다.
+
+### defects 테이블
+
+결함(detection) 1건 = 1행. app_front가 계산한 bbox/클래스/신뢰도/AI 판정을 그대로 저장하며, app_back은 이 값을 재추론 없이 그대로 읽어 표시합니다. **REVIEW/FAIL 등급만 저장되며 PASS 등급은 저장되지 않습니다** (app_back이 PASS를 쓰지 않으므로 행 수를 절약).
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                            defects                                   │
+├──────────────┬───────────┬──────────────────────────────────────────┤
+│ 컬럼         │ 타입      │ 설명                                       │
+├──────────────┼───────────┼──────────────────────────────────────────┤
+│ id           │ INTEGER   │ PK, AUTOINCREMENT                         │
+│ tile_id      │ INTEGER   │ FK → tiles(id), ON DELETE CASCADE         │
+│ class_id     │ INTEGER   │ 모델 클래스 정수 ID                        │
+│ class_name   │ TEXT      │ 결함 클래스명                              │
+│ confidence   │ REAL      │ 신뢰도 (0.0~1.0)                          │
+│ bbox_x1~y2   │ REAL      │ 타일 내 절대 좌표 bbox                     │
+│ verdict      │ TEXT      │ 결함 1건의 AI 판정: REVIEW / FAIL          │
+│ user_verdict │ TEXT      │ 작업자 판정: pass / 1~6 / NULL(미판정)    │
+│ created_at   │ TEXT      │ 생성 시각 (datetime, 자동 삽입)            │
+│ updated_at   │ TEXT      │ 최종 갱신 시각 (datetime, 자동 삽입)       │
+└──────────────┴───────────┴──────────────────────────────────────────┘
+INDEX(tile_id), INDEX(verdict, id)
+```
+
+app_back의 필름스트립 엔트리는 이 테이블의 행 1개와 1:1 대응합니다. 같은 `tile_id`를 공유하는 여러 결함(형제 결함)은 서로 독립적으로 작업자 판정이 매겨집니다.
 
 ---
 
@@ -87,16 +112,16 @@ UNIQUE(image_path, grid_row, grid_col)
 
 ```
 app_front: clear_all() 호출
-    └─► tiles 전체 삭제
-    └─► sqlite_sequence 리셋 (AUTOINCREMENT 1부터 재시작)
+    └─► defects 전체 삭제 → tiles 전체 삭제
+    └─► sqlite_sequence 리셋 (tiles/defects 둘 다 AUTOINCREMENT 1부터 재시작)
     └─► db_session_id = 새 UUID4  ◄── 핵심 신호
 
 app_back: _poll_db() (3초마다)
     └─► get_settings()["db_session_id"] 조회
     └─► 이전 값과 다르면? → _on_db_reset() 실행
-            └─► filmstrip 전체 초기화
+            └─► filmstrip 전체 초기화 (_tile_cache/_tile_defects도 함께 초기화)
             └─► _last_shown_id = 0
-            └─► 이후 폴링부터 새 타일 수신 재시작
+            └─► 이후 폴링부터 새 결함 수신 재시작
 ```
 
 ---
@@ -106,12 +131,12 @@ app_back: _poll_db() (3초마다)
 | 함수 | 시그니처 | 역할 |
 |------|----------|------|
 | `init_db` | `() → None` | 테이블 생성 또는 구버전 스키마 자동 마이그레이션, 기본값 삽입 |
-| `upsert_tile` | `(tile_bgr, verdict, image_path, grid_row, grid_col) → None` | 타일 삽입/교체 (동일 위치면 최신값으로 덮어씀) |
-| `fetch_review_tiles` | `(after_id=0) → list[dict]` | `verdict='REVIEW'`인 타일을 `after_id` 이후 ID순으로 반환 |
-| `get_tile_image` | `(tile_id) → bytes or None` | 단일 타일의 원본 PNG BLOB 조회 (app_back의 브러쉬 수정 복원 기능이 사용) |
+| `upsert_tile` | `(tile_bgr, verdict, image_path, grid_row, grid_col, detections) → None` | 타일 삽입/교체 + 그 타일의 defects를 전부 지우고 재삽입 (REVIEW/FAIL 등급만) |
+| `fetch_review_defects` | `(after_id=0) → list[dict]` | `verdict IN ('REVIEW','FAIL')`인 결함을 `after_id` 이후 ID순으로 반환 (tile_id 포함) |
+| `get_tile_image` | `(tile_id) → bytes or None` | 단일 타일의 원본 PNG BLOB 조회 |
 | `count_by_verdict` | `() → dict` | `{verdict: count}` 형태로 판정별 타일 수 집계 |
-| `save_user_verdict` | `(tile_id, user_verdict) → None` | 작업자 판정 저장 (`user_verdict` + `updated_at` 업데이트) |
-| `clear_all` | `() → None` | tiles 전체 삭제 + AUTOINCREMENT 리셋 + db_session_id 갱신 |
+| `save_defect_verdict` | `(defect_id, user_verdict) → None` | 결함 1건의 작업자 판정 저장 (`user_verdict` + `updated_at` 업데이트) |
+| `clear_all` | `() → None` | defects/tiles 전체 삭제 + AUTOINCREMENT 리셋 + db_session_id 갱신 |
 | `get_db_stats` | `() → dict` | 판정별 카운트 + `_total` + `_db_bytes` (파일 크기) |
 | `get_settings` | `() → dict` | settings 테이블 전체를 `{key: value}` dict로 반환 |
 | `update_setting` | `(key, value) → None` | 단일 설정 키 UPSERT |
@@ -133,13 +158,14 @@ conn.execute("PRAGMA foreign_keys=ON")
 
 ## 스키마 마이그레이션
 
-구버전 DB(`image_path` 컬럼 없음)가 감지되면 `init_db()` 호출 시 자동으로 테이블을 재생성합니다.  
-기존 `id`, `tile_image`, `verdict`, `inspected_at` 데이터는 보존됩니다.
+구버전 DB(결함 단위 이전, `tiles.user_verdict` 컬럼 존재)가 감지되면 `init_db()` 호출 시
+`defects`/`tiles`를 DROP 후 신규 스키마로 재생성합니다. app_front가 검사 시작마다
+`clear_all()`로 전체 데이터를 지우는 구조라 구버전 데이터 보존은 하지 않습니다.
 
 ```
-PRAGMA table_info(tiles) → image_path 컬럼 없음?
-    └─► CREATE TABLE tiles_new (신규 스키마)
-    └─► INSERT INTO tiles_new SELECT FROM tiles (기존 데이터 복사)
+PRAGMA table_info(tiles) → user_verdict 컬럼 존재?
+    └─► DROP TABLE IF EXISTS defects
     └─► DROP TABLE tiles
-    └─► ALTER TABLE tiles_new RENAME TO tiles
+    └─► CREATE TABLE tiles (신규 스키마)
+    └─► CREATE TABLE IF NOT EXISTS defects (신규 스키마)
 ```
