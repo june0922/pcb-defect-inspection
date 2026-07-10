@@ -120,7 +120,7 @@ def patch_grad_scaler(last_pt: Path) -> None:
     GPU 이어학습 시 load_state_dict({}) 호출로 KeyError: 'scale' 발생하는 문제를 방지.
     """
     ckpt = torch.load(str(last_pt), map_location="cpu", weights_only=False)
-    scaler_state = ckpt.get("scaler", {})
+    scaler_state = ckpt.get("scaler") or {}
     if "scale" not in scaler_state:
         print("[resume] ⚠️  GradScaler 상태가 올바르지 않습니다 (CPU 저장본 또는 잘못된 패치).")
         print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
