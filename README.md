@@ -1,10 +1,10 @@
 # YOLO26 Small 5-Fold 앙상블 기반 PCB 결함 탐지 시스템
 
 ## app_front — 실시간 자동 검사 모니터링
-<img width="800" height="381" alt="app_front-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/c9a249a4-1c55-4f42-b29d-a08e6bccb150" />
+<img width="800" height="418" alt="front_-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/05cf78d6-8f84-418c-9151-24e3daa3f969" />
 
 ## app_back — REVIEW 타일 수동 판정 리뷰 스테이션
-<img width="800" height="383" alt="app_back-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/f7c7a50c-3b85-420b-a83f-a11adde81c47" />
+<img width="800" height="418" alt="back_-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/6af7445e-c551-4a84-a7cb-a975bcef5a85" />
 
 ## 소개
 YOLO26 Small(yolo26s) 5-Fold 앙상블 모델로 PCB(인쇄회로기판) 표면 결함을 고정밀 탐지하는 통합 시스템입니다.  
