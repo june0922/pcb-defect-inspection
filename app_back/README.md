@@ -76,13 +76,14 @@ QTimer 3초마다 _poll_db() 호출
   │                 (재로딩 실패 시 경고만 띄우고 기존 모델 유지, 응답 없음은 이 구간뿐)
   │
   └─► fetch_review_tiles(after_id=_last_shown_id) → 새 타일 조회
-        └─► 앞쪽 MAX_TILES_PER_POLL_TICK(기본 10)건만 이번 틱에 처리, 나머지는 다음 틱으로 이월
+        └─► 앞쪽 MAX_TILES_PER_POLL_TICK(기본 3)건만 이번 틱에 처리, 나머지는 다음 틱으로 이월
               (REVIEW 폭주 시 한 번에 몰아서 동기 추론하면 UI가 멈추는 것을 방지)
         └─► 처리 대상 각 타일에 대해 _process_tile(tile_row):
               ├─ PNG BLOB → cv2.imdecode()
               ├─ worker.run_single_image_sync(img_bgr)
               │     └─ 설정된 모델 전체로 추론 → WBF → detections, crops
-              ├─ TileEntry 생성 (tile_id, img_bgr, detections, crops)
+              ├─ _filter_by_active_bands()로 비활성 클래스 및 PASS 등급(review_min 미만) 제외
+              ├─ TileEntry 생성 (tile_id, img_bgr, detections, crops — REVIEW/FAIL 등급만)
               └─ FilmStrip 썸네일 추가 (개수 상한 없음 — 미판정 대기열이라 의도적으로 무제한 누적)
 ```
 
@@ -136,25 +137,30 @@ FilmStrip 1건에 대응하는 데이터 클래스.
 |------|------|------|
 | `tile_id` | int | DB tiles.id (user_verdict 저장 키) |
 | `img_bgr` | ndarray | 타일 BGR 이미지 (크기는 app_front Options의 타일 크기 설정을 따름, 기본 640×640) |
-| `detections` | list[dict] | `{class_id, class_name, confidence, bbox_abs}` 목록 |
+| `detections` | list[dict] | `{class_id, class_name, confidence, bbox_abs}` 목록 (REVIEW/FAIL 등급만, PASS 등급은 저장 시점에 제외) |
 | `crops` | list[ndarray] | 결함별 확대 크롭 이미지 |
 | `verdict` | str | `"pending"` / `"pass"` / `"1"~"6"` |
 
 ### VisionViewer (`vision_viewer.py`, 대화형)
 
-결함 오버레이를 표시하는 대화형 뷰어입니다.
+결함 오버레이를 표시하는 대화형 뷰어입니다. 타일에 REVIEW/FAIL 등급 결함이 여러 개
+있으면 전부 동시에 표시하며(필름스트립 썸네일과 짝지어진 대표 결함 1건만 강조 테두리),
+`zoom_to_detections()`가 그 전체를 감싸는 영역으로 자동 확대한다.
 
 | 조작 | 동작 |
 |------|------|
 | 우클릭 드래그 | 패닝 (이미지 이동) |
 | 마우스 휠 | 줌 인/아웃 (포인터 중심) |
 | 좌클릭 드래그 | 흰색 브러쉬 마스킹 |
-| `Shift` | 선택 오버레이 외 숨김 |
+| `Shift` (Hold) | 강조 표시된 대표 결함(썸네일 기준) 1건만 남기고 나머지 숨김 |
 
-결함 박스 색상은 `confidence_color(conf, class_name, per_class_bands)` 함수로 per-class 판단:
+결함 박스 색상은 `confidence_color(conf, class_name, per_class_bands)` 함수로 per-class
+판단하며, `per_class_bands`는 3초 폴링마다 DB(app_front의 Option)에서 갱신된다:
 - **빨강**: conf > class review_max (FAIL 수준)
 - **노랑**: conf ≥ class review_min (REVIEW 수준)
-- **회색**: conf < class review_min (PASS 수준) — app_back은 REVIEW 판정 여부만 중요하므로 app_front(초록)와 달리 회색을 그대로 유지한다.
+
+PASS 등급(review_min 미만)은 `_filter_by_active_bands()`에서 저장 시점에 걸러져 화면에
+아예 표시되지 않는다 — app_back은 REVIEW 판정 여부만 중요하므로 불필요한 정보다.
 
 ---
 
