@@ -88,7 +88,6 @@ ati3_project/
 │   └── README.md
 │
 ├── weights/                 # 베이스 모델 및 앙상블 최종 가중치
-│   ├── yolo26n.pt           # YOLO26 Nano 베이스 (~5.4 MB)
 │   ├── yolo26s.pt           # YOLO26 Small 베이스 (~19.5 MB, 실제 사용)
 │   ├── best_fold_1~5.pt     # 5-Fold K-Fold 최적 가중치 (~6 MB × 5)
 │   └── README.md

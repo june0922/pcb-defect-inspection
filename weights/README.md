@@ -8,8 +8,7 @@
 
 | 파일 | 크기 | 설명 |
 |------|------|------|
-| `yolo26n.pt` | ~5.4 MB | YOLOv8 **Nano** 베이스 모델 (학습 시작점, 경량) |
-| `yolo26s.pt` | ~19.5 MB | YOLOv8 **Small** 베이스 모델 (실제 학습/추론에 사용) |
+| `yolo26s.pt` | ~19.5 MB | YOLO26 **Small** 베이스 모델 (실제 학습/추론에 사용) |
 | `best_fold_1.pt` | ~6.0 MB | 5-Fold K-Fold Fold 1 최적 가중치 |
 | `best_fold_2.pt` | ~6.0 MB | 5-Fold K-Fold Fold 2 최적 가중치 |
 | `best_fold_3.pt` | ~6.0 MB | 5-Fold K-Fold Fold 3 최적 가중치 |
@@ -22,7 +21,6 @@
 
 | 모델 | 파라미터 수 | 특징 |
 |------|------------|------|
-| `yolo26n.pt` (Nano) | ~3.2M | 초경량, 빠른 추론 속도, 정확도 낮음 |
 | `yolo26s.pt` (Small) | ~11.2M | 속도-정확도 균형, **실제 프로젝트 사용** |
 
 `config.yaml`의 `model_size` 키로 학습 시 베이스 모델을 선택합니다.  

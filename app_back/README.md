@@ -38,7 +38,7 @@ app_front와 app_back은 각자 독립적으로 실행되는 별개의 프로그
 통해 정상적으로 연동됩니다. `init_db()`는 두 프로세스가 각자 호출해도 안전합니다
 (`CREATE TABLE IF NOT EXISTS` + `INSERT OR IGNORE`만 사용).
 
-> app_back은 YOLO 모델을 로딩하지 않으므로 앱 시작 즉시 DB 폴링이 시작됩니다.
+> app_back은 YOLO26 모델을 로딩하지 않으므로 앱 시작 즉시 DB 폴링이 시작됩니다.
 
 ---
 
