@@ -1,13 +1,18 @@
-# QGraphicsView 기반 고해상도 결함 뷰어 (줌/패닝/코너 브라켓)
+# QGraphicsView 기반 고해상도 결함 뷰어 (줌/패닝/코너 브라켓/bbox 편집)
 
 import cv2
 import numpy as np
-from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsItem
-from PyQt5.QtCore import Qt, QRectF, QPointF
+from PyQt5.QtWidgets import QGraphicsView, QGraphicsScene, QGraphicsItem, QGraphicsRectItem
+from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPainterPath,
     QImage, QPixmap, QFont, QFontMetricsF,
 )
+
+# 리사이즈 핸들 크기 (화면 고정 px, ItemIgnoresTransformations로 줌과 무관)
+_HANDLE_SIZE = 9
+# bbox 최소 크기 (원본 픽셀 기준) — 편집 중 이보다 작아지지 않도록 클램프
+_MIN_BBOX_SIZE = 10.0
 
 
 def confidence_color(
@@ -82,10 +87,14 @@ class VisionViewer(QGraphicsView):
     기능:
     - 마우스 휠: 포인터 중심 확대/축소 (scale factor 1.15)
     - 우클릭 드래그: 패닝
+    - 좌클릭 드래그: 강조(highlight)된 결함의 bbox 이동/리사이즈 편집
     - 코너 브라켓 렌더링 (Cosmetic Pen → 줌 불변 두께 2~3px)
     - 신호등 배색 (confidence 기반)
-    - Shift 홀드: 오버레이 숨김 토글
+    - Shift 홀드: 오버레이 숨김 토글 (편집 동작과는 독립적으로 항상 동일하게 동작)
     """
+
+    # 편집(이동/리사이즈) 확정 시 최종 bbox_abs([x1,y1,x2,y2])를 전달
+    bbox_edited = pyqtSignal(list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -101,6 +110,7 @@ class VisionViewer(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setBackgroundBrush(QBrush(QColor(30, 30, 30)))
+        self.setMouseTracking(True)  # 호버 커서 갱신을 위해 버튼 안 눌러도 mouseMoveEvent 수신
 
         self._pixmap_item = None
         self._overlay_items = []
@@ -112,6 +122,18 @@ class VisionViewer(QGraphicsView):
         self._max_zoom = 50.0     # 최대 50배 확대 허용 (픽셀 단위 검사 가능)
         self._panning = False
         self._pan_start = QPointF()
+
+        # ── bbox 편집 상태 (highlight된 결함에 대해서만 존재) ──────────
+        self._edit_bracket_items = []   # 편집 대상의 코너 브라켓 4개 (경량 갱신용)
+        self._edit_label_item = None    # 편집 대상의 라벨 (경량 갱신용)
+        self._edit_bbox = None          # 편집 대상의 현재 bbox_abs [x1,y1,x2,y2]
+        self._edit_class_name = None
+        self._edit_confidence = None
+        self._edit_color = None
+        self._handle_items = {}         # {handle_name: QGraphicsRectItem} — highlight 결함 전용
+        self._drag_mode = None          # None | "move" | "tl"|"tm"|"tr"|"ml"|"mr"|"bl"|"bm"|"br"
+        self._drag_start_scene_pos = QPointF()
+        self._drag_start_bbox = None
 
     # ── Public API ─────────────────────────────────────────────
 
@@ -141,12 +163,13 @@ class VisionViewer(QGraphicsView):
 
         Args:
             detections: bbox_abs, class_name, confidence, class_id 포함 dict 리스트.
-            highlight_index: 강조 표시할 결함 인덱스 (더 두꺼운 선).
+            highlight_index: 강조 표시할 결함 인덱스 (더 두꺼운 선 + 편집 핸들).
             per_class_bands: {class_name: (review_min, review_max)} — 색상 결정용.
         """
         self._clear_overlay()
         self._highlighted_overlay_items = []
         self._other_overlay_items = []
+        self._reset_edit_state()
 
         for i, det in enumerate(detections):
             x1, y1, x2, y2 = det["bbox_abs"]
@@ -165,16 +188,64 @@ class VisionViewer(QGraphicsView):
             label_item = DefectLabel(label_text, color)
             label_item.setPos(x1, y1 - 2)
             self._scene.addItem(label_item)
-            
+
             items_for_this_defect = bracket_items + [label_item]
             self._overlay_items.extend(items_for_this_defect)
-            
+
             if is_highlighted:
                 self._highlighted_overlay_items.extend(items_for_this_defect)
+                self._edit_bracket_items = bracket_items
+                self._edit_label_item = label_item
+                self._edit_bbox = [x1, y1, x2, y2]
+                self._edit_class_name = cls_name
+                self._edit_confidence = conf
+                self._edit_color = color
             else:
                 self._other_overlay_items.extend(items_for_this_defect)
 
+        if self._edit_bbox is not None:
+            self._rebuild_handles()
+
         self.set_overlay_visible(self._overlay_visible)
+
+    # ── bbox 편집 (이동/리사이즈) ──────────────────────────────
+
+    def _reset_edit_state(self):
+        """편집 대상 참조와 핸들을 초기화 (핸들 아이템은 _clear_overlay가 이미 씬에서 제거)."""
+        self._edit_bracket_items = []
+        self._edit_label_item = None
+        self._edit_bbox = None
+        self._edit_class_name = None
+        self._edit_confidence = None
+        self._edit_color = None
+        self._handle_items = {}
+        self._drag_mode = None
+
+    def _rebuild_handles(self):
+        """highlight된 결함의 bbox 위에 이동/리사이즈 핸들을 새로 생성."""
+        for item in self._handle_items.values():
+            self._scene.removeItem(item)
+        self._handle_items = {}
+
+        x1, y1, x2, y2 = self._edit_bbox
+        cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
+        positions = {
+            "tl": (x1, y1), "tm": (cx, y1), "tr": (x2, y1),
+            "ml": (x1, cy), "mr": (x2, cy),
+            "bl": (x1, y2), "bm": (cx, y2), "br": (x2, y2),
+        }
+        half = _HANDLE_SIZE / 2.0
+        for name, (px, py) in positions.items():
+            handle = QGraphicsRectItem(-half, -half, _HANDLE_SIZE, _HANDLE_SIZE)
+            handle.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+            handle.setPos(px, py)
+            handle.setPen(QPen(QColor(255, 255, 255), 1))
+            handle.setBrush(QBrush(QColor(0, 220, 255, 220)))
+            handle.setZValue(50)
+            self._scene.addItem(handle)
+            self._handle_items[name] = handle
+            self._overlay_items.append(handle)
+            self._highlighted_overlay_items.append(handle)
 
     def set_overlay_visible(self, visible: bool):
         """Shift 홀드 시 오버레이 숨김 토글 (강조된 결함은 항상 표시)."""
@@ -216,6 +287,7 @@ class VisionViewer(QGraphicsView):
         self._overlay_items = []
         self._highlighted_overlay_items = []
         self._other_overlay_items = []
+        self._reset_edit_state()
 
     def zoom(self, zoom_in: bool):
         """키보드 단축키용 줌인/줌아웃 (중앙 기준)."""
@@ -290,6 +362,89 @@ class VisionViewer(QGraphicsView):
         self._highlighted_overlay_items = []
         self._other_overlay_items = []
 
+    # ── bbox 편집: 히트테스트 ──────────────────────────────────
+
+    def _hit_test_edit_target(self, viewport_pos):
+        """좌클릭 좌표가 highlight된 결함의 핸들/내부 영역에 해당하는지 검사.
+
+        핸들은 highlight된 결함에 대해서만 존재하므로(_rebuild_handles), 형제
+        (non-highlight) 결함은 애초에 히트테스트 후보가 될 수 없다.
+        Returns: 핸들 이름(8방향) | "move" | None
+        """
+        if self._edit_bbox is None:
+            return None
+
+        # 핸들이 bbox 내부 히트보다 우선순위가 높도록 먼저 검사(코너/변 클릭이
+        # "이동"으로 오인되지 않게 함). 핸들은 화면 고정 크기이므로 뷰포트 좌표로 비교.
+        for name, handle in self._handle_items.items():
+            handle_view_pos = self.mapFromScene(handle.scenePos())
+            half = _HANDLE_SIZE / 2.0 + 2  # 약간의 여유(클릭 편의)
+            if (abs(viewport_pos.x() - handle_view_pos.x()) <= half
+                    and abs(viewport_pos.y() - handle_view_pos.y()) <= half):
+                return name
+
+        scene_pt = self.mapToScene(viewport_pos)
+        x1, y1, x2, y2 = self._edit_bbox
+        if x1 <= scene_pt.x() <= x2 and y1 <= scene_pt.y() <= y2:
+            return "move"
+        return None
+
+    _CURSOR_BY_HANDLE = {
+        "tl": Qt.SizeFDiagCursor, "br": Qt.SizeFDiagCursor,
+        "tr": Qt.SizeBDiagCursor, "bl": Qt.SizeBDiagCursor,
+        "tm": Qt.SizeVerCursor, "bm": Qt.SizeVerCursor,
+        "ml": Qt.SizeHorCursor, "mr": Qt.SizeHorCursor,
+        "move": Qt.SizeAllCursor,
+    }
+
+    def _update_hover_cursor(self, viewport_pos):
+        hit = self._hit_test_edit_target(viewport_pos)
+        if hit is not None:
+            self.setCursor(self._CURSOR_BY_HANDLE[hit])
+        else:
+            self.setCursor(Qt.ArrowCursor)
+
+    def _apply_drag(self, scene_pt: QPointF):
+        """드래그 중 bbox를 재계산하고 브라켓/라벨/핸들을 경량 갱신 (DB 접근 없음)."""
+        x1, y1, x2, y2 = self._drag_start_bbox
+        dx = scene_pt.x() - self._drag_start_scene_pos.x()
+        dy = scene_pt.y() - self._drag_start_scene_pos.y()
+
+        if self._drag_mode == "move":
+            x1, y1, x2, y2 = x1 + dx, y1 + dy, x2 + dx, y2 + dy
+        else:
+            if "l" in self._drag_mode:
+                x1 = min(x1 + dx, x2 - _MIN_BBOX_SIZE)
+            elif "r" in self._drag_mode:
+                x2 = max(x2 + dx, x1 + _MIN_BBOX_SIZE)
+            if "t" in self._drag_mode:
+                y1 = min(y1 + dy, y2 - _MIN_BBOX_SIZE)
+            elif "b" in self._drag_mode:
+                y2 = max(y2 + dy, y1 + _MIN_BBOX_SIZE)
+
+        self._edit_bbox = [x1, y1, x2, y2]
+        self._redraw_edit_overlay()
+
+    def _redraw_edit_overlay(self):
+        """편집 중인 결함의 브라켓/라벨/핸들을 현재 self._edit_bbox 기준으로 다시 그림."""
+        x1, y1, x2, y2 = self._edit_bbox
+
+        for item in self._edit_bracket_items:
+            self._scene.removeItem(item)
+            if item in self._overlay_items:
+                self._overlay_items.remove(item)
+            if item in self._highlighted_overlay_items:
+                self._highlighted_overlay_items.remove(item)
+        new_brackets = self._draw_corner_brackets(x1, y1, x2, y2, self._edit_color, 3.0)
+        self._edit_bracket_items = new_brackets
+        self._overlay_items.extend(new_brackets)
+        self._highlighted_overlay_items.extend(new_brackets)
+
+        if self._edit_label_item is not None:
+            self._edit_label_item.setPos(x1, y1 - 2)
+
+        self._rebuild_handles()
+
     # ── Event Handlers ─────────────────────────────────────────
 
     def wheelEvent(self, event):
@@ -304,17 +459,31 @@ class VisionViewer(QGraphicsView):
         self._apply_zoom(factor)
 
     def mousePressEvent(self, event):
-        """우클릭: 패닝 시작."""
+        """우클릭: 패닝 시작. 좌클릭: highlight된 결함의 핸들/내부일 때만 편집 시작.
+
+        Shift 상태와 무관하게 동일하게 동작한다 — Shift는 오버레이 숨김 토글
+        전용이고(main_ui.py의 keyPressEvent/keyReleaseEvent), 이 드래그 로직과는
+        서로 참조하지 않는 완전히 분리된 입력 채널이다.
+        """
         if event.button() == Qt.RightButton:
             self._panning = True
             self._pan_start = event.pos()
             self.setCursor(Qt.ClosedHandCursor)
             event.accept()
+        elif event.button() == Qt.LeftButton:
+            hit = self._hit_test_edit_target(event.pos())
+            if hit is not None:
+                self._drag_mode = hit
+                self._drag_start_scene_pos = self.mapToScene(event.pos())
+                self._drag_start_bbox = list(self._edit_bbox)
+                event.accept()
+            else:
+                super().mousePressEvent(event)
         else:
             super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event):
-        """패닝 중: 뷰 이동."""
+        """패닝 중: 뷰 이동. 편집 드래그 중: bbox 갱신. 기본: 호버 커서 갱신."""
         if self._panning:
             delta = event.pos() - self._pan_start
             self._pan_start = event.pos()
@@ -325,14 +494,24 @@ class VisionViewer(QGraphicsView):
                 self.verticalScrollBar().value() - int(delta.y())
             )
             event.accept()
+        elif self._drag_mode is not None:
+            self._apply_drag(self.mapToScene(event.pos()))
+            event.accept()
         else:
+            self._update_hover_cursor(event.pos())
             super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event):
-        """패닝 종료."""
+        """패닝 종료. 편집 드래그 종료 시 bbox_edited 시그널 emit(DB 저장은 상위 위임)."""
         if event.button() == Qt.RightButton and self._panning:
             self._panning = False
             self.setCursor(Qt.ArrowCursor)
+            event.accept()
+        elif event.button() == Qt.LeftButton and self._drag_mode is not None:
+            self._drag_mode = None
+            self._drag_start_bbox = None
+            if self._edit_bbox is not None:
+                self.bbox_edited.emit(list(self._edit_bbox))
             event.accept()
         else:
             super().mouseReleaseEvent(event)

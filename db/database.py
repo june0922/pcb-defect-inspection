@@ -187,26 +187,50 @@ def upsert_tile(
             )
 
 
+_DEFECT_SELECT_COLUMNS = """
+    id, tile_id, class_id, class_name, confidence,
+    bbox_x1, bbox_y1, bbox_x2, bbox_y2, verdict, user_verdict
+"""
+
+
+def _row_to_defect_dict(r) -> dict:
+    return {
+        "id": r[0], "tile_id": r[1], "class_id": r[2], "class_name": r[3],
+        "confidence": r[4], "bbox_abs": [r[5], r[6], r[7], r[8]], "verdict": r[9],
+        "user_verdict": r[10],
+    }
+
+
 def fetch_review_defects(after_id: int = 0) -> list[dict]:
-    """verdict가 REVIEW/FAIL인 결함을 after_id 이후 순서로 조회."""
+    """verdict가 REVIEW인 결함을 after_id 이후 순서로 조회 (필름스트립용 — 사람이 검토할
+    대상은 REVIEW뿐이며 FAIL은 확정 결함이라 필름스트립에 올리지 않는다. FAIL 형제 결함은
+    LocalView 렌더링 시 fetch_tile_defects()로 별도 조회한다)."""
     with _LOCK, _get_connection() as conn:
         rows = conn.execute(
-            """
-            SELECT id, tile_id, class_id, class_name, confidence,
-                   bbox_x1, bbox_y1, bbox_x2, bbox_y2, verdict
+            f"""
+            SELECT {_DEFECT_SELECT_COLUMNS}
             FROM defects
-            WHERE verdict IN ('REVIEW', 'FAIL') AND id > ?
+            WHERE verdict = 'REVIEW' AND id > ?
             ORDER BY id ASC
             """,
             (after_id,),
         ).fetchall()
-    return [
-        {
-            "id": r[0], "tile_id": r[1], "class_id": r[2], "class_name": r[3],
-            "confidence": r[4], "bbox_abs": [r[5], r[6], r[7], r[8]], "verdict": r[9],
-        }
-        for r in rows
-    ]
+    return [_row_to_defect_dict(r) for r in rows]
+
+
+def fetch_tile_defects(tile_id: int) -> list[dict]:
+    """특정 타일의 REVIEW+FAIL 결함 전체를 조회 (LocalView가 형제 결함을 함께 그릴 때 사용)."""
+    with _LOCK, _get_connection() as conn:
+        rows = conn.execute(
+            f"""
+            SELECT {_DEFECT_SELECT_COLUMNS}
+            FROM defects
+            WHERE tile_id = ? AND verdict IN ('REVIEW', 'FAIL')
+            ORDER BY id ASC
+            """,
+            (tile_id,),
+        ).fetchall()
+    return [_row_to_defect_dict(r) for r in rows]
 
 
 def get_tile_image(tile_id: int) -> bytes | None:
@@ -234,6 +258,17 @@ def save_defect_verdict(defect_id: int, user_verdict: str | None) -> None:
         conn.execute(
             "UPDATE defects SET user_verdict=?, updated_at=datetime('now') WHERE id=?",
             (user_verdict, defect_id),
+        )
+
+
+def update_defect_bbox(defect_id: int, bbox_abs: list) -> None:
+    """작업자가 LocalView에서 드래그로 수정한 bbox 좌표를 저장 (결함 1건 단위)."""
+    x1, y1, x2, y2 = bbox_abs
+    with _LOCK, _get_connection() as conn:
+        conn.execute(
+            "UPDATE defects SET bbox_x1=?, bbox_y1=?, bbox_x2=?, bbox_y2=?, "
+            "updated_at=datetime('now') WHERE id=?",
+            (x1, y1, x2, y2, defect_id),
         )
 
 
