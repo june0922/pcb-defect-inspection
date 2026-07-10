@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QStatusBar, QLabel, QMessageBox, QProgressBar,
     QApplication, QShortcut,
 )
-from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer
+from PyQt5.QtCore import Qt, QSize, QRectF, pyqtSlot, QTimer, QEvent
 from PyQt5.QtGui import (
     QPainter, QPen, QBrush, QColor, QPixmap, QImage, QIcon, QKeySequence,
 )
@@ -44,7 +44,7 @@ BORDER_WIDTH = 3
 DEBOUNCE_SEC = 0.10
 # 한 번의 폴링(3초)에서 처리할 최대 타일 수 — REVIEW가 폭주해 한 번에 수십~수백 건이
 # 도착해도 전부 동기 추론하면 UI가 통째로 멈추므로, 초과분은 다음 폴링으로 미뤄 분산한다
-MAX_TILES_PER_POLL_TICK = 10
+MAX_TILES_PER_POLL_TICK = 3
 _FALLBACK_MODEL_PATHS = [f"weights/best_fold_{i}.pt" for i in range(1, 6)]
 
 BORDER_COLORS = {
@@ -587,6 +587,16 @@ class MainWindow(QMainWindow):
             self._local_view.set_overlay_visible(True)
         else:
             super().keyReleaseEvent(event)
+
+    def changeEvent(self, event):
+        """창이 비활성화(알트탭 등)되면 Shift 홀드로 숨겨진 오버레이를 강제 복원한다.
+
+        Shift를 누른 채 포커스를 잃으면 keyReleaseEvent가 전달되지 않아 나머지 결함
+        박스가 계속 숨겨진 채 고착될 수 있다.
+        """
+        if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
+            self._local_view.set_overlay_visible(True)
+        super().changeEvent(event)
 
     def _verdict_current(self, verdict: str):
         now = time.time()
