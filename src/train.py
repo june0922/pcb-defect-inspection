@@ -86,7 +86,7 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         # GPU에서 이어학습 시 load_state_dict({})를 호출하면 KeyError: 'scale' 발생.
         # 조건: "scale" 키가 없으면 무조건 패치 (빈 딕셔너리 및 잘못된 키 모두 포함)
         ckpt = torch.load(str(last_pt), map_location="cpu", weights_only=False)
-        scaler_state = ckpt.get("scaler", {})
+        scaler_state = ckpt.get("scaler") or {}
         if "scale" not in scaler_state:
             print("[resume] ⚠️  체크포인트의 GradScaler 상태가 올바르지 않습니다 (CPU 저장본 또는 잘못된 패치).")
             print("[resume]    GPU 이어학습을 위해 GradScaler 상태를 기본값으로 패치합니다...")
