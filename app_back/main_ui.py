@@ -8,7 +8,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PyQt5.QtWidgets import (
-    QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QSplitter,
     QListWidget, QListWidgetItem, QGraphicsView, QGraphicsScene,
     QStatusBar, QLabel, QProgressBar,
     QShortcut,
@@ -148,6 +148,7 @@ class MainWindow(QMainWindow):
 
         self._init_ui()
         self._connect_signals()
+        QApplication.instance().installEventFilter(self)
 
         if _DB_ENABLED:
             try:
@@ -558,28 +559,27 @@ class MainWindow(QMainWindow):
     # ── 단축키 ─────────────────────────────────────────────────
 
     def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Shift and not event.isAutoRepeat():
-            self._local_view.set_overlay_visible(False)
-        elif event.key() == Qt.Key_Control and not event.isAutoRepeat():
+        if event.key() == Qt.Key_Control and not event.isAutoRepeat():
             self._focus_first_pending()
         else:
             super().keyPressEvent(event)
 
-    def keyReleaseEvent(self, event):
-        if event.key() == Qt.Key_Shift and not event.isAutoRepeat():
-            self._local_view.set_overlay_visible(True)
-        else:
-            super().keyReleaseEvent(event)
+    def eventFilter(self, obj, event):
+        """Shift 오버레이 숨김을 포커스와 무관하게 애플리케이션 전역에서 감지.
 
-    def changeEvent(self, event):
-        """창이 비활성화(알트탭 등)되면 Shift 홀드로 숨겨진 오버레이를 강제 복원한다.
-
-        Shift를 누른 채 포커스를 잃으면 keyReleaseEvent가 전달되지 않아 나머지 결함
-        박스가 계속 숨겨진 채 고착될 수 있다.
+        MainWindow.keyPressEvent/keyReleaseEvent는 MainWindow가 포커스를 가질 때만
+        호출된다. GlobalView(QGraphicsView) 등 자식 위젯이 포커스를 가져가면 Shift
+        press/release가 비대칭으로 씹혀 오버레이가 숨겨진 채 고착될 수 있으므로,
+        애플리케이션 전역 이벤트 필터로 감지해 포커스 위치와 무관하게 동작시킨다.
         """
-        if event.type() == QEvent.ActivationChange and not self.isActiveWindow():
+        etype = event.type()
+        if etype == QEvent.KeyPress and event.key() == Qt.Key_Shift and not event.isAutoRepeat():
+            self._local_view.set_overlay_visible(False)
+        elif etype == QEvent.KeyRelease and event.key() == Qt.Key_Shift and not event.isAutoRepeat():
             self._local_view.set_overlay_visible(True)
-        super().changeEvent(event)
+        elif etype == QEvent.ApplicationDeactivate:
+            self._local_view.set_overlay_visible(True)
+        return super().eventFilter(obj, event)
 
     def _verdict_current(self, verdict: str):
         now = time.time()
