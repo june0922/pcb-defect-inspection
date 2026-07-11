@@ -2,9 +2,6 @@ env: local
 judge:
   conf_threshold: 0.5
   iou_threshold: 0.45
-  review_band:
-  - 0.3
-  - 0.5
 paths:
   colab:
     project_root: /content/pcb-defect-inspection
