@@ -270,19 +270,16 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             print("[kfold] ℹ️  Colab 환경 감지 → cache='disk'를 'ram'으로 변경 (SIGINT 방지)")
             train_args["cache"] = "ram"
 
-        if fold_resume:
-            # 이어학습 시 kwargs를 전달하면 Ultralytics가 resume을 무시하고 1 epoch부터 재시작하는 버그 방지
-            results = model.train(resume=True)
-        else:
-            results = model.train(
-                data=str(data_yaml),
-                device=device,
-                project=str(paths["runs"] / "kfold"),
-                name=f"fold_{fold_num}",
-                exist_ok=True,
-                verbose=False,
-                **train_args
-            )
+        results = model.train(
+            data=str(data_yaml),
+            device=device,
+            project=str(paths["runs"] / "kfold"),
+            name=f"fold_{fold_num}",
+            exist_ok=True,
+            resume=fold_resume,
+            verbose=False,
+            **train_args
+        )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)
         best_src = Path(results.save_dir) / "weights" / "best.pt"
