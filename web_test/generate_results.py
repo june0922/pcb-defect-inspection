@@ -47,6 +47,10 @@ MODELS_TO_EVALUATE = [
     }
 ]
 
+# 추론 시 사용할 confidence/IoU 임계값
+CONF_THRESHOLD = 0.5
+IOU_THRESHOLD = 0.45
+
 # (참고) 기존 5-Fold 앙상블 설정 백업
 # MODELS_TO_EVALUATE = [
 #     {
@@ -190,8 +194,8 @@ def generate_predictions():
     # Get class names from the first loaded model
     class_names = MODELS_TO_EVALUATE[0]["loaded_models"][0].names
 
-    conf_thres = cfg["judge"]["conf_threshold"]
-    iou_thres = cfg["judge"]["iou_threshold"]
+    conf_thres = CONF_THRESHOLD
+    iou_thres = IOU_THRESHOLD
 
     print("\n[INFO] 추론 중...")
     
