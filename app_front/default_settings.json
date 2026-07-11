@@ -11,10 +11,10 @@
   "overlap_pct": 0,
   "alert_sound": true,
   "model_paths": [
-    "app_front/models/best_fold_1.pt",
-    "app_front/models/best_fold_2.pt",
-    "app_front/models/best_fold_3.pt",
-    "app_front/models/best_fold_4.pt",
-    "app_front/models/best_fold_5.pt"
+    "app_front/models/best_fold_1_tune.pt",
+    "app_front/models/best_fold_2_tune.pt",
+    "app_front/models/best_fold_3_tune.pt",
+    "app_front/models/best_fold_4_tune.pt",
+    "app_front/models/best_fold_5_tune.pt"
   ]
 }

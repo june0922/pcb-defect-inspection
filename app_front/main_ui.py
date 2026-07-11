@@ -439,7 +439,7 @@ class MainWindow(QMainWindow):
     # ── 설정 로드/저장 (DB 기반) ──────────────────────────────
 
     _FALLBACK_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
-    _FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}.pt" for i in range(1, 6)]
+    _FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}_tune.pt" for i in range(1, 6)]
 
     def _load_settings(self) -> dict:
         """DB settings 테이블에서 설정을 읽어 반환. DB가 없으면 기본값 사용."""
@@ -812,10 +812,15 @@ class MainWindow(QMainWindow):
         tile_size = int(self._app_settings.get("tile_size", 640))
         overlap_pct = int(self._app_settings.get("overlap_pct", 0))
 
-        # GPU/CPU 자동 판별
+        # GPU/CPU 자동 판별 (Windows/Linux는 CUDA, Mac은 MPS, 그 외에는 CPU로 폴백)
         try:
             import torch
-            device = "0" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "0"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
         except ImportError:
             device = "cpu"
 

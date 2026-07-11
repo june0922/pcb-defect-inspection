@@ -29,20 +29,20 @@ from utils import load_config, get_paths
 MODELS_TO_EVALUATE = [
     {
         "id": "model_a",
-        "title": "No-Tune 0-KFold (300 Epoch)",
-        "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+        "title": "26s No-Tune 5-KFold Ensemble (500 Epoch)",
+        "tooltip": "26s 모델(No-Tune)의 5-Fold WBF 앙상블 추론 결과입니다.",
         "result_dir": "model_a_results",
         "weights": [
-            PROJECT_ROOT / "weights" / "new_v8n_notune_721_0kfold_300epoch_100patience" / "weights" / "best.pt"
+            PROJECT_ROOT / "weights" / "26s_notune_721_5kfold_500epoch_100patience" / "weights" / f"best_fold_{i}.pt" for i in range(1, 6)
         ]
     },
     {
         "id": "model_b",
-        "title": "No-Tune 0-KFold (500 Epoch)",
-        "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+        "title": "26s Yes-Tune 5-KFold Ensemble (500 Epoch)",
+        "tooltip": "26s 모델(Yes-Tune)의 5-Fold WBF 앙상블 추론 결과입니다.",
         "result_dir": "model_b_results",
         "weights": [
-            PROJECT_ROOT / "weights" / "new_v8n_notune_721_0kfold_500epoch_100patience" / "weights" / "best.pt"
+            PROJECT_ROOT / "weights" / "26s_yestune_721_5kfold_500epoch_100patience" / "weights" / f"best_fold_{i}_tune.pt" for i in range(1, 6)
         ]
     }
 ]

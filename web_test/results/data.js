@@ -116,24 +116,24 @@ const RESULTS_DATA = {
   "models": [
     {
       "id": "model_a",
-      "title": "No-Tune 0-KFold (300 Epoch)",
-      "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+      "title": "26s No-Tune 5-KFold Ensemble (500 Epoch)",
+      "tooltip": "26s 모델(No-Tune)의 5-Fold WBF 앙상블 추론 결과입니다.",
       "result_dir": "model_a_results",
       "metrics": {
-        "recall": 0.8533543348312378,
-        "map50": 0.9728692770004272,
-        "map50_95": 0.8102312088012695
+        "recall": 0.9032725691795349,
+        "map50": 0.9889566898345947,
+        "map50_95": 0.8735553622245789
       }
     },
     {
       "id": "model_b",
-      "title": "No-Tune 0-KFold (500 Epoch)",
-      "tooltip": "단일 모델(1 Train) 추론 결과입니다.",
+      "title": "26s Yes-Tune 5-KFold Ensemble (500 Epoch)",
+      "tooltip": "26s 모델(Yes-Tune)의 5-Fold WBF 앙상블 추론 결과입니다.",
       "result_dir": "model_b_results",
       "metrics": {
-        "recall": 0.8613133430480957,
-        "map50": 0.9661779403686523,
-        "map50_95": 0.8077377676963806
+        "recall": 0.9078277349472046,
+        "map50": 0.9931123852729797,
+        "map50_95": 0.8780302405357361
       }
     }
   ]
