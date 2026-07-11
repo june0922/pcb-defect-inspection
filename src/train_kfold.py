@@ -40,11 +40,17 @@ def get_image_and_label_paths(processed_dir: Path):
         img_dir = processed_dir / "images" / split
         lbl_dir = processed_dir / "labels" / split
         if img_dir.exists():
+            # OS/환경에 따른 glob 결과 순서 차이 방지를 위해 리스트화 후 정렬
+            images_for_split = []
             for img_path in img_dir.glob("*.jpg"):
                 lbl_path = lbl_dir / f"{img_path.stem}.txt"
                 if lbl_path.exists():
-                    images.append(img_path)
-                    labels.append(lbl_path)
+                    images_for_split.append((img_path, lbl_path))
+            # 경로 기준 정렬 (이어학습 시 데이터셋 분할 일관성 유지)
+            images_for_split.sort(key=lambda x: str(x[0]))
+            for img_path, lbl_path in images_for_split:
+                images.append(img_path)
+                labels.append(lbl_path)
     return images, labels
 
 
