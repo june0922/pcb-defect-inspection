@@ -80,6 +80,7 @@ def get_representative_classes(labels: list[Path], num_classes: int = 6):
 def build_kfold_yaml(
     train_txt: Path,
     val_txt: Path,
+    out_yaml: Path,
     base_yaml: Path | None = None,
 ) -> Path:
     """data.yaml 템플릿을 읽어 동적인 Fold 설정 YAML을 생성합니다.
@@ -87,10 +88,11 @@ def build_kfold_yaml(
     Args:
         train_txt: 학습 이미지 경로 목록 txt 파일 (절대 경로)
         val_txt:   검증 이미지 경로 목록 txt 파일 (절대 경로)
+        out_yaml:  생성할 YAML 파일 경로
         base_yaml: 기반 data.yaml 경로. None 이면 PROJECT_ROOT/data.yaml 사용.
 
     Returns:
-        생성된 임시 YAML 파일의 Path.
+        생성된 YAML 파일의 Path.
     """
     if base_yaml is None:
         base_yaml = PROJECT_ROOT / "data.yaml"
@@ -105,13 +107,10 @@ def build_kfold_yaml(
     # path 필드는 txt 절대 경로 방식에서는 불필요하므로 제거
     data.pop("path", None)
 
-    # mktemp() 대신 NamedTemporaryFile 사용 (TOCTOU race condition 방지)
-    with tempfile.NamedTemporaryFile(
-        suffix=".yaml", mode="w", delete=False, encoding="utf-8"
-    ) as tmp_f:
-        yaml.dump(data, tmp_f)
-        tmp = Path(tmp_f.name)
-    return tmp
+    with open(out_yaml, "w", encoding="utf-8") as f:
+        yaml.dump(data, f)
+    
+    return out_yaml
 
 
 def patch_grad_scaler(last_pt: Path) -> None:
@@ -207,9 +206,16 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         # --- Resume 모드: fold 상태 판별 ---
         best_dst = paths["weights"] / f"best_fold_{fold_num}.pt"
         last_pt  = paths["runs"] / "kfold" / f"fold_{fold_num}" / "weights" / "last.pt"
+        results_png = paths["runs"] / "kfold" / f"fold_{fold_num}" / "results.png"
 
-        if resume and best_dst.exists():
-            print(f"\n[kfold] Fold {fold_num}/{k} → 이미 완료됨 ({best_dst.name} 존재). 건너뜁니다.")
+        if resume and (best_dst.exists() or results_png.exists()):
+            print(f"\n[kfold] Fold {fold_num}/{k} → 이미 완료됨. 건너뜁니다.")
+            # Colab 환경 등에서 Drive 동기화 지연으로 best_dst가 없다면 여기서 복구
+            if not best_dst.exists():
+                best_src = paths["runs"] / "kfold" / f"fold_{fold_num}" / "weights" / "best.pt"
+                if best_src.exists():
+                    best_dst.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy(best_src, best_dst)
             continue
 
         fold_resume = resume and last_pt.exists()
@@ -231,8 +237,9 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         with open(val_txt, "w", encoding="utf-8") as f:
             f.write("\n".join(str(p.resolve()) for p in val_imgs))
             
-        # fold용 임시 yaml 작성
-        data_yaml = build_kfold_yaml(train_txt, val_txt)
+        # fold용 임시 yaml 작성 (고정 경로로 저장해야 resume 시 FileNotFound 방지)
+        out_yaml = processed_dir / f"data_fold_{fold_num}.yaml"
+        data_yaml = build_kfold_yaml(train_txt, val_txt, out_yaml)
 
         # 모델 로드: resume 이면 last.pt, 신규이면 base 모델
         if fold_resume:
@@ -257,16 +264,19 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
             print("[kfold] ℹ️  Colab 환경 감지 → cache='disk'를 'ram'으로 변경 (SIGINT 방지)")
             train_args["cache"] = "ram"
 
-        results = model.train(
-            data=str(data_yaml),
-            device=device,
-            project=str(paths["runs"] / "kfold"),
-            name=f"fold_{fold_num}",
-            exist_ok=True,
-            resume=fold_resume,
-            verbose=False,
-            **train_args
-        )
+        if fold_resume:
+            # 이어학습 시 kwargs를 전달하면 Ultralytics가 resume을 무시하고 1 epoch부터 재시작하는 버그 방지
+            results = model.train(resume=True)
+        else:
+            results = model.train(
+                data=str(data_yaml),
+                device=device,
+                project=str(paths["runs"] / "kfold"),
+                name=f"fold_{fold_num}",
+                exist_ok=True,
+                verbose=False,
+                **train_args
+            )
 
         # best.pt 백업 (폴드 번호 1-indexed로 통일)
         best_src = Path(results.save_dir) / "weights" / "best.pt"
@@ -277,7 +287,8 @@ def main(config_path: str = "config.yaml", resume: bool = False) -> None:
         else:
             print(f"[warn] Fold {fold_num} 최적 가중치를 찾지 못했습니다: {best_src}")
 
-        data_yaml.unlink(missing_ok=True)
+        # 텍스트 파일은 디버깅/재현을 위해 남겨두는 것도 좋지만, 필요하다면 삭제 가능
+        # data_yaml.unlink(missing_ok=True)
 
         # Fold 전환 시 GPU 메모리 및 DataLoader worker 안전 정리
         # SIGINT를 일시적으로 무시하여 worker 종료 시그널이 메인 프로세스로
