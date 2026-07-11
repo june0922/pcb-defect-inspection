@@ -812,10 +812,15 @@ class MainWindow(QMainWindow):
         tile_size = int(self._app_settings.get("tile_size", 640))
         overlap_pct = int(self._app_settings.get("overlap_pct", 0))
 
-        # GPU/CPU 자동 판별
+        # GPU/CPU 자동 판별 (Windows/Linux는 CUDA, Mac은 MPS, 그 외에는 CPU로 폴백)
         try:
             import torch
-            device = "0" if torch.cuda.is_available() else "cpu"
+            if torch.cuda.is_available():
+                device = "0"
+            elif torch.backends.mps.is_available():
+                device = "mps"
+            else:
+                device = "cpu"
         except ImportError:
             device = "cpu"
 
