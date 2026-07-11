@@ -76,5 +76,39 @@ tune:
 kfold:
   k: 5
   random_state: 42
+kfold_tune:
+  imgsz: 1280
+  batch: 16
+  epochs: 500
+  model: weights/yolo26s.pt
+  patience: 100
+  device: 0
+  cache: ram
+  lr0: 0.00302
+  lrf: 0.01199
+  momentum: 0.80234
+  weight_decay: 0.00053
+  warmup_epochs: 4.48591
+  warmup_momentum: 0.95
+  box: 7.87952
+  cls: 0.37333
+  cls_pw: 0.02866
+  dfl: 1.91088
+  hsv_h: 0.023
+  hsv_s: 0.45353
+  hsv_v: 0.66066
+  degrees: 0.01553
+  translate: 0.09454
+  scale: 0.29856
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.00033
+  fliplr: 0.23179
+  bgr: 0.00516
+  mosaic: 1.0
+  mixup: 0.00123
+  cutmix: 0.00106
+  copy_paste: 0.0
+  close_mosaic: 6
 evaluate:
   weights: weights/best.pt
