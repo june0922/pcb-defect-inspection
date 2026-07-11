@@ -50,3 +50,6 @@ db/inspection.db
 db/inspection.db-shm
 db/inspection.db-wal
 db/fallback.db
+
+GPU_SERVER_GUIDE.md
+GPU_SERVER_USER_GUIDE.md
