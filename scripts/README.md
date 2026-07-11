@@ -17,7 +17,7 @@
 | `run_preprocess.bat` / `.sh` | `src/preprocess.py` 실행 — 원본 DeepPCB 데이터를 YOLO 포맷으로 변환 + train/val/test 분할 |
 | `run_train.bat` / `.sh` | `src/train.py` 실행 — 단일 yolo26s 모델 학습 |
 | `run_kfold.bat` / `.sh` | `src/train_kfold.py` 실행 — 5-Fold K-Fold 앙상블 학습 → `weights/best_fold_1~5.pt` 생성 |
-| `run_tune.bat` / `.sh` | `src/tune.py` 실행 — Ray Tune 기반 하이퍼파라미터 탐색 |
+| `run_tune.bat` / `.sh` | `src/tune.py` 실행 — 하이퍼파라미터 탐색 |
 | `run_train_tune.bat` / `.sh` | `src/train_tune.py` 실행 — 튜닝 결과 적용 후 단일 모델 정밀 학습 |
 | `run_kfold_tune.bat` / `.sh` | `src/train_kfold_tune.py` 실행 — 튜닝 결과 적용 5-Fold 앙상블 학습 → `weights/best_fold_1~5_tune.pt` 생성 |
 | `reset_to_main.bat` / `.sh` | **주의: 전체 초기화** — 로컬 저장소를 `origin/main`과 동일하게 강제 리셋 |
