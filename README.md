@@ -4,7 +4,7 @@
 <img width="800" height="418" alt="front_-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/05cf78d6-8f84-418c-9151-24e3daa3f969" />
 
 ## app_back — REVIEW 타일 수동 판정 리뷰 스테이션
-<img width="800" height="418" alt="back_-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/6af7445e-c551-4a84-a7cb-a975bcef5a85" />
+<img width="800" height="418" alt="0712_033541-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/85e656f5-6fd5-4748-8e94-7fdc06963c75" />
 
 ## 소개
 YOLO26 Small(yolo26s) 5-Fold 앙상블 모델로 PCB(인쇄회로기판) 표면 결함을 고정밀 탐지하는 통합 시스템입니다.  
