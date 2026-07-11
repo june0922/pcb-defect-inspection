@@ -4,8 +4,7 @@ preprocessed_data/
 dataset/
 merged_data/
 
-# 학습 산출물 (가중치/로그/플롯) — Drive/로컬에만 보관, git 커밋 대상 아님
-runs/
+# 학습 산출물 (가중치/로그/플롯) — 원본 방침은 커밋 제외였으나 사용자 요청으로 runs 포함
 web_test/weights/
 
 # 학습 로그
