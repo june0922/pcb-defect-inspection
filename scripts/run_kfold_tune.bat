@@ -1,0 +1,108 @@
+@echo off
+chcp 65001 >nul
+title YOLOv8 K-Fold Cross Validation (Hyperparameter tuned)
+
+:: Change working directory to the project root
+cd /d "%~dp0.."
+
+:: Activate virtual environment if it exists
+if exist "%~dp0..\venv\Scripts\activate.bat" (
+    call "%~dp0..\venv\Scripts\activate.bat"
+)
+
+echo ========================================================
+echo  YOLOv8 K-Fold Cross Validation (Hyperparameter tuned)
+echo  Current Directory: %CD%
+echo ========================================================
+echo.
+
+:: --- Preprocessing step (optional) ---
+set /p run_pre="Run preprocessing first? (Y/N, default is N): "
+if /I "%run_pre%"=="Y" (
+    echo.
+    echo ========================================================
+    echo Running Preprocessing...
+    echo ========================================================
+    python src\preprocess.py --config config.yaml
+    if errorlevel 1 (
+        echo [Error] Preprocessing failed.
+        pause
+        exit /b 1
+    )
+)
+
+echo.
+echo ========================================================
+echo Current Configuration Parameters:
+echo ========================================================
+python scripts\show_config.py
+echo.
+
+:: --- Guard: check preprocessed data exists ---
+:: NOTE: This path must match the 'processed' path resolved by config.yaml + get_paths()
+if not exist "preprocessed_data\images\train" (
+    echo [Error] preprocessed_data\images\train not found.
+    echo         Please run preprocessing first.
+    pause
+    exit /b 1
+)
+
+:: --- Confirm K-Fold training ---
+set /p run_kfold="Proceed with K-Fold cross validation (tuned)? (Y/N, default is N): "
+if /I not "%run_kfold%"=="Y" (
+    echo K-Fold training cancelled by user.
+    pause
+    exit /b 0
+)
+
+echo.
+
+:: --- Guard: check previous kfold results ---
+if not exist "runs\kfold_tune" goto start_kfold
+
+echo ========================================================
+echo [Notice] Previous K-Fold(Tune) results found in runs\kfold_tune\.
+echo   R = Resume  (skip completed folds, resume interrupted)
+echo   O = Overwrite (start all folds from scratch)
+echo   N = Cancel
+echo ========================================================
+set /p kfold_action="Your choice (R/O/N, default is N): "
+
+if /I "%kfold_action%"=="R" (
+    set KFOLD_EXTRA=--resume
+    echo Resuming K-Fold from checkpoints...
+    goto start_kfold
+)
+if /I "%kfold_action%"=="O" (
+    set KFOLD_EXTRA=
+    echo Starting K-Fold from scratch (overwrite)...
+    goto start_kfold
+)
+echo K-Fold training cancelled by user.
+pause
+exit /b 0
+
+:start_kfold
+echo ========================================================
+echo Starting YOLOv8 K-Fold Cross Validation (Hyperparameter tuned)...
+echo ========================================================
+python src\train_kfold_tune.py --config config.yaml %KFOLD_EXTRA%
+if errorlevel 1 (
+    echo.
+    echo [Error] K-Fold training encountered an error.
+    pause
+    exit /b 1
+)
+
+echo.
+echo ========================================================
+echo K-Fold Training Execution Finished.
+echo Results saved to: runs\kfold_tune\
+echo Weights saved to: weights\best_fold_1_tune.pt ~ best_fold_N_tune.pt
+echo ========================================================
+echo The terminal will automatically close in 10 seconds.
+echo Press Ctrl+C to cancel and keep the window open.
+timeout /t 10
+if errorlevel 0 (
+    exit
+)
