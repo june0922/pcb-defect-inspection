@@ -14,6 +14,7 @@
 | `best_fold_3.pt` | ~6.0 MB | 5-Fold K-Fold Fold 3 최적 가중치 |
 | `best_fold_4.pt` | ~6.0 MB | 5-Fold K-Fold Fold 4 최적 가중치 |
 | `best_fold_5.pt` | ~6.0 MB | 5-Fold K-Fold Fold 5 최적 가중치 |
+| `best_fold_1~5_tune.pt` | ~6.0 MB × 5 | 튜닝된 하이퍼파라미터로 학습한 5-Fold K-Fold 최적 가중치 (`train_kfold_tune.py` 결과, 기존 `best_fold_1~5.pt`와 별도) |
 
 ---
 
@@ -44,4 +45,17 @@ python scripts/get_base_model.py
 생성 방법:
 ```bash
 bash scripts/run_kfold.sh   # 또는 scripts\run_kfold.bat
+```
+
+---
+
+## best_fold_1~5_tune.pt
+
+GA 튜닝 하이퍼파라미터(`config.yaml`의 `kfold_tune` 섹션)를 적용해 `train_kfold_tune.py`로
+학습한 5-Fold 가중치입니다. 기존 `train_kfold.py`/`best_fold_1~5.pt`에는 영향을 주지 않는
+별도 파이프라인의 산출물이며, 앱에서 사용하려면 `app_front` Options에서 수동으로 선택해야 합니다.
+
+생성 방법:
+```bash
+bash scripts/run_kfold_tune.sh   # 또는 scripts\run_kfold_tune.bat
 ```

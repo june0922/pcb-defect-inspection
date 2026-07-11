@@ -15,6 +15,7 @@
 | `train_kfold.py` | 5-Fold K-Fold 앙상블 학습 → `weights/best_fold_1~5.pt` 생성 |
 | `tune.py` | Ray Tune 기반 하이퍼파라미터 탐색 |
 | `train_tune.py` | 튜닝 결과 적용 단일 모델 정밀 학습 |
+| `train_kfold_tune.py` | 튜닝 결과 적용 5-Fold K-Fold 앙상블 학습 → `weights/best_fold_1~5_tune.pt` 생성 (`train_kfold.py`와 별도 파이프라인) |
 | `utils.py` | config.yaml 로드 + 환경(local/colab/server)별 경로 분기 |
 | `__init__.py` | 패키지 초기화 |
 
@@ -87,6 +88,13 @@ save_yolo_format()
                        └─► 최적 파라미터 → config.yaml 반영
 
 [튜닝 후 학습]     scripts/run_train_tune.bat → src/train_tune.py
+
+[튜닝 후 5-Fold 앙상블]  scripts/run_kfold_tune.bat → src/train_kfold_tune.py
+                       ├─► weights/best_fold_1_tune.pt
+                       ├─► weights/best_fold_2_tune.pt
+                       ├─► weights/best_fold_3_tune.pt
+                       ├─► weights/best_fold_4_tune.pt
+                       └─► weights/best_fold_5_tune.pt
 ```
 
 ---
