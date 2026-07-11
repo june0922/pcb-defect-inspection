@@ -102,6 +102,11 @@ ati3_project/
 │   ├── pcb_kfold_tune_colab.ipynb
 │   └── README.md
 │
+├── web_test/                # [실험/평가용] 두 모델(Model A/B) test 세트 추론 결과 비교 웹 뷰어
+│   ├── generate_results.py  # 추론(단일/WBF 앙상블) + torchmetrics mAP·Recall 계산 + results/data.js 생성
+│   ├── index.html / script.js / style.css  # 2-패널 비교 뷰어 (슬라이드쇼 재생 + 지표 표시)
+│   └── README.md
+│
 ├── dataset/                 # 원본 DeepPCB 데이터셋 폴더
 ├── preprocessed_data/       # 전처리 완료 YOLO 형식 데이터 (자동 생성)
 └── runs/                    # 모델 학습 로그 및 산출물 (자동 생성)

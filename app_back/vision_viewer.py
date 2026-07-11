@@ -463,8 +463,8 @@ class VisionViewer(QGraphicsView):
         """우클릭: 패닝 시작. 좌클릭: highlight된 결함의 핸들/내부일 때만 편집 시작.
 
         Shift 상태와 무관하게 동일하게 동작한다 — Shift는 오버레이 숨김 토글
-        전용이고(main_ui.py의 keyPressEvent/keyReleaseEvent), 이 드래그 로직과는
-        서로 참조하지 않는 완전히 분리된 입력 채널이다.
+        전용이고(main_ui.py의 eventFilter), 이 드래그 로직과는 서로 참조하지
+        않는 완전히 분리된 입력 채널이다.
         """
         if event.button() == Qt.RightButton:
             self._panning = True

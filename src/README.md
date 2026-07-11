@@ -97,6 +97,20 @@ save_yolo_format()
                        └─► weights/best_fold_5_tune.pt
 ```
 
+`train_tune.py`(단일 모델)와 `train_kfold_tune.py`(5-Fold 앙상블)는 `config.yaml`의 `train_tune`/`kfold_tune` 섹션에 있는 동일한 튜닝된 하이퍼파라미터 값(`lr0`, `box`, `cls` 등)을 공유합니다 — 두 파이프라인은 단일 모델 vs 5-Fold 앙상블이라는 구조 차이만 있을 뿐, 적용하는 하이퍼파라미터는 같습니다.
+
+### 이어학습(Resume) 및 안정성
+
+`train_kfold.py`/`train_kfold_tune.py`는 `--resume` 플래그로 fold별 상태를 자동 판별합니다.
+- `best_fold_N(.pt|_tune.pt)` 존재 → 해당 fold는 완료로 간주하고 건너뜀
+- `last.pt` 존재 → 해당 fold를 `last.pt`에서 이어서 학습
+- 둘 다 없음 → 처음부터 학습
+
+추가로 다음 안정성 처리를 포함합니다.
+- CPU에 저장된 체크포인트라 GradScaler 상태가 없는 경우, 이어학습 전에 기본값으로 자동 패치
+- Google Colab 환경 감지 시 `cache="disk"`를 `"ram"`으로 자동 전환 (SIGINT로 인한 학습 중단 방지)
+- 이미지/라벨 경로 수집 시 정렬을 적용해 OS/환경별 `glob` 순서 비결정성으로 인한 fold 구성 차이를 방지
+
 ---
 
 ## utils.py — 환경 분기
