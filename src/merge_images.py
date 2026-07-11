@@ -78,7 +78,7 @@ def main():
     os.makedirs(output_dir, exist_ok=True)
     
     img_width, img_height = 640, 640
-    defect_prob = 0.02
+    defect_prob = 0.05
     total_created = 0
     
     print("이미지 합성 및 색상 처리 작업을 시작합니다...")
