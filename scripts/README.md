@@ -55,7 +55,15 @@ bash scripts/run_kfold.sh
 
 1. 프로젝트 루트로 이동 (`%~dp0..` / `$(dirname "$0")/..`)
 2. `venv/` 가상환경 감지 후 자동 활성화 (없으면 현재 Python 환경 사용)
-3. 해당 Python 모듈 실행
+3. `show_config.py`로 현재 `config.yaml` 설정 값 출력
+4. (`run_preprocess` 제외) 전처리 데이터(`preprocessed_data/images/train`) 존재 여부 확인 — 없으면 에러 후 종료
+5. 진행 여부를 묻는 Y/N 프롬프트 (기본값 N — 그냥 Enter 시 취소)
+6. 해당 Python 모듈 실행
+
+**이어학습(Resume) 프롬프트** — 학습/튜닝 스크립트는 이전 결과물이 남아있으면 실행 전 추가로 묻습니다.
+- `run_train` / `run_train_tune`: `runs/train/weights/last.pt`가 있으면 Y/N으로 이어학습 여부 확인 (`--resume` 플래그 전달)
+- `run_tune`: `runs/tune/`이 있으면 R(이전 iteration부터 이어서)/O(`runs/tune/` 삭제 후 재시작)/N(취소, 기본값) 중 선택
+- `run_kfold` / `run_kfold_tune`: `runs/kfold(_tune)/`이 있으면 R(완료된 fold는 건너뛰고 중단된 fold는 `last.pt`에서 이어학습, `--resume` 전달)/O(모든 fold 처음부터)/N(취소, 기본값) 중 선택
 
 ---
 
@@ -66,3 +74,6 @@ bash scripts/run_kfold.sh
     이 스크립트는 uncommitted 변경 사항 및 untracked 파일을 모두 삭제합니다.
     실행 전 반드시 작업 내용을 커밋하거나 백업하세요.
 ```
+
+`git reset --hard`/`git clean -fdx` 실행 전, 아래 디렉터리를 먼저 강제 삭제합니다(Windows 파일 잠금으로 인한 프롬프트 멈춤 방지 목적).
+`preprocessed_data/`, `dataset/`, `venv/`, `src/__pycache__/`, `app_back/__pycache__/`, `web_test/preprocessed_data/`, `web_test/results/`, `web_test/runs/`, `web_test/weights/`
