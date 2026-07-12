@@ -439,7 +439,7 @@ class MainWindow(QMainWindow):
     # ── 설정 로드/저장 (DB 기반) ──────────────────────────────
 
     _FALLBACK_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
-    _FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}.pt" for i in range(1, 6)]
+    _FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}_tune.pt" for i in range(1, 6)]
 
     def _load_settings(self) -> dict:
         """DB settings 테이블에서 설정을 읽어 반환. DB가 없으면 기본값 사용."""

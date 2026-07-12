@@ -14,7 +14,7 @@ DEFAULT_SETTINGS_PATH = Path(__file__).resolve().parent / "default_settings.json
 
 # default_settings.json을 읽지 못할 때의 최후 폴백(파일 삭제/손상 대비)
 _FALLBACK_DEFAULT_CLASSES = ["open", "short", "mousebite", "spur", "copper", "pinhole"]
-_FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}.pt" for i in range(1, 6)]
+_FALLBACK_MODEL_PATHS = [f"app_front/models/best_fold_{i}_tune.pt" for i in range(1, 6)]
 
 
 def load_defaults_raw() -> dict:
