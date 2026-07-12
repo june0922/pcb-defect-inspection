@@ -1,7 +1,6 @@
 # PCB 실시간 검사 모니터링 프로그램 진입점
 
 import sys
-from pathlib import Path
 
 # PyTorch를 PyQt5보다 먼저 import (Windows DLL 충돌 방지)
 try:

@@ -1,7 +1,6 @@
 # DeepPCB 결함 리뷰 스테이션 진입점
 
 import sys
-from pathlib import Path
 
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QPalette, QColor, QFont
