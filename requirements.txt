@@ -10,11 +10,6 @@ scipy
 networkx
 Pillow
 
-# 웹 데모 (web_hwang/)
-fastapi
-uvicorn[standard]
-python-multipart
-
 # 테스트 결과 생성 (web_test/)
 ensemble-boxes
 torchmetrics

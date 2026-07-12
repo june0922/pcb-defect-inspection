@@ -34,8 +34,7 @@ if str(_PROJECT_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT / "src"))
 
 # ── DB 연동 (실패해도 앱 동작은 유지) ──────────
-import sys as _sys
-_sys.path.insert(0, str(_PROJECT_ROOT))
+sys.path.insert(0, str(_PROJECT_ROOT))
 try:
     from db.database import (
         init_db as _db_init,

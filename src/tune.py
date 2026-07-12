@@ -13,7 +13,6 @@
 import sys
 import os
 os.environ["TQDM_FORCE_TTY"] = "1"
-import shutil
 import argparse
 import tempfile
 from pathlib import Path
