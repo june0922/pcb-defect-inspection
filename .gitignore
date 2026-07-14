@@ -1,13 +1,8 @@
 
-# 데이터 — raw 는 /shared 참조라 프로젝트에 없고, processed 만 preprocessed_data/ 에 생성
 preprocessed_data/
 dataset/
 merged_data/
-
-# 학습 산출물 (가중치/로그/플롯) — 원본 방침은 커밋 제외였으나 사용자 요청으로 runs 포함
 web_test/weights/
-
-# 학습 로그
 *.log
 
 # Python
