@@ -48,13 +48,6 @@ def apply_embossing(colored_img, binary_img):
 def apply_blur_and_antialias(img):
     return cv2.GaussianBlur(img, (3, 3), 0.5)
 
-def apply_camera_degradation(img):
-    if random.random() > 0.5:
-        img = cv2.GaussianBlur(img, (5, 5), 1.0)
-    encode_param = [int(cv2.IMWRITE_JPEG_QUALITY), random.randint(60, 95)]
-    result, encimg = cv2.imencode('.jpg', img, encode_param)
-    decimg = cv2.imdecode(encimg, 1)
-    return decimg
 
 def apply_augmentation(merged_im):
     img_np = np.array(merged_im.convert('L'))
