@@ -2,7 +2,6 @@
 preprocessed_data/
 dataset/
 merged_data/
-web_test/weights/
 *.log
 
 # Python

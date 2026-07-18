@@ -309,14 +309,7 @@ def get_settings() -> dict:
     return {r[0]: r[1] for r in rows}
 
 
-def update_setting(key: str, value: str) -> None:
-    """단일 설정 값 업데이트."""
-    with _LOCK, _get_connection() as conn:
-        conn.execute(
-            "INSERT INTO settings(key, value) VALUES(?, ?)"
-            " ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')",
-            (key, value),
-        )
+
 
 
 def update_settings(settings: dict) -> None:

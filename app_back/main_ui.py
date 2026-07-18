@@ -620,44 +620,7 @@ class MainWindow(QMainWindow):
 
     # ── ESC / Ctrl ─────────────────────────────────────────────
 
-    def _remove_entry_at(self, index: int):
-        """결함 엔트리를 필름스트립/목록에서 제거.
 
-        Qt는 현재 선택된 행을 takeItem()으로 지우면 내부 currentRow를
-        자동으로 재조정하는데, 그 값이 이후 우리가 호출하는 setCurrentRow()의
-        인자와 우연히 같아지면 "값이 안 바뀌었다"고 보고 currentRowChanged
-        시그널을 발동시키지 않는다. 화면 갱신(_on_filmstrip_selection)이
-        오직 이 시그널에만 걸려 있으면 갱신이 누락될 수 있으므로, 시그널
-        발동 여부와 무관하게 화면 갱신 함수를 항상 직접 호출한다.
-        """
-        if not (0 <= index < len(self._defects)):
-            return
-
-        entry = self._defects[index]
-        siblings = self._tile_defects.get(entry.tile_id)
-        if siblings and entry.defect_id in siblings:
-            siblings.remove(entry.defect_id)
-            if not siblings:
-                del self._tile_defects[entry.tile_id]
-                self._tile_cache.pop(entry.tile_id, None)
-
-        self._filmstrip.currentRowChanged.disconnect(self._on_filmstrip_selection)
-        try:
-            del self._defects[index]
-            self._filmstrip.takeItem(index)
-            new_index = min(index, len(self._defects) - 1) if self._defects else -1
-            if new_index >= 0:
-                self._filmstrip.setCurrentRow(new_index)
-        finally:
-            self._filmstrip.currentRowChanged.connect(self._on_filmstrip_selection)
-
-        if new_index == -1:
-            self._current_index = -1
-            self._local_view.clear_all()
-            self._global_scene.clear()
-            self._update_status()
-        else:
-            self._on_filmstrip_selection(new_index)
 
     def _focus_first_pending(self):
         """Ctrl: 아직 판정하지 않은 가장 앞쪽 결함으로 포커스 이동."""

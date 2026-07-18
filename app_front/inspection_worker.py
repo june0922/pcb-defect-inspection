@@ -93,8 +93,6 @@ class InspectionWorker(QThread):
         """검사 재개."""
         self._pause_event.set()
 
-    def is_paused(self) -> bool:
-        return not self._pause_event.is_set()
 
     def stop(self):
         """워커 스레드 중단 요청."""
