@@ -76,4 +76,4 @@ bash scripts/run_kfold.sh
 ```
 
 `git reset --hard`/`git clean -fdx` 실행 전, 아래 디렉터리를 먼저 강제 삭제합니다(Windows 파일 잠금으로 인한 프롬프트 멈춤 방지 목적).
-`preprocessed_data/`, `dataset/`, `venv/`, `src/__pycache__/`, `app_back/__pycache__/`, `web_test/preprocessed_data/`, `web_test/results/`, `web_test/runs/`, `web_test/weights/`
+`preprocessed_data/`, `dataset/`, `venv/`, `src/__pycache__/`, `app_back/__pycache__/`

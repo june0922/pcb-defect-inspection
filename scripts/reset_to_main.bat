@@ -31,10 +31,7 @@ if exist dataset rmdir /s /q dataset 2>nul
 if exist venv rmdir /s /q venv 2>nul
 if exist src\__pycache__ rmdir /s /q src\__pycache__ 2>nul
 if exist app_back\__pycache__ rmdir /s /q app_back\__pycache__ 2>nul
-if exist web_test\preprocessed_data rmdir /s /q web_test\preprocessed_data 2>nul
-if exist web_test\results rmdir /s /q web_test\results 2>nul
-if exist web_test\runs rmdir /s /q web_test\runs 2>nul
-if exist web_test\weights rmdir /s /q web_test\weights 2>nul
+
 
 git fetch origin --prune < nul
 git reset --hard origin/main

@@ -1,4 +1,4 @@
-﻿# YOLO26 Small 5-Fold 앙상블 기반 PCB 결함 탐지 시스템
+# YOLO26 Small 5-Fold 앙상블 기반 PCB 결함 탐지 시스템
 
 ## app_front — 실시간 자동 검사 모니터링
 <img width="800" height="418" alt="front_-ezgif com-video-to-gif-converter" src="https://github.com/user-attachments/assets/05cf78d6-8f84-418c-9151-24e3daa3f969" />
@@ -105,11 +105,6 @@ ati3_project/
 │   ├── pcb_tune_colab.ipynb
 │   ├── pcb_train_tune_colab.ipynb
 │   ├── pcb_kfold_tune_colab.ipynb
-│   └── README.md
-│
-├── web_test/                # [실험/평가용] 두 모델(Model A/B) test 세트 추론 결과 비교 웹 뷰어
-│   ├── generate_results.py  # 추론(단일/WBF 앙상블) + torchmetrics mAP·Recall 계산 + results/data.js 생성
-│   ├── index.html / script.js / style.css  # 2-패널 비교 뷰어 (슬라이드쇼 재생 + 지표 표시)
 │   └── README.md
 │
 ├── dataset/                 # 원본 DeepPCB 데이터셋 폴더
